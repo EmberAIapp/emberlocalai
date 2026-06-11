@@ -1,0 +1,14 @@
+[package]
+name = "ane-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Low-level bindings to Apple Neural Engine private APIs"
+
+[dependencies]
+thiserror.workspace = true
+log.workspace = true
+half.workspace = true
+
+[build-dependencies]
+cc = "1"

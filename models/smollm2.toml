@@ -1,0 +1,23 @@
+[model]
+name = "SmolLM2-135M"
+family = "smollm2"
+hf_id = "HuggingFaceTB/SmolLM2-135M"
+params = "135M"
+
+[architecture]
+n_layers = 30
+dim = 576
+hidden_dim = 1536
+n_heads = 9
+n_kv_heads = 3
+head_dim = 64
+vocab_size = 49152
+max_seq_len = 2048
+norm_eps = 1e-5
+rope_theta = 10000.0
+
+[recommended]
+lora_rank = 8
+seq_len = 256
+batch_size = 1
+learning_rate = 2e-4

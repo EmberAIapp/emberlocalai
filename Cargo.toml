@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "crates/ane-sys",
+    "crates/ane-core",
+    "crates/ane-python",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["ANEForge Contributors"]
+description = "Democratizing AI fine-tuning on Apple Neural Engine"
+repository = "https://github.com/aneforge/aneforge"
+
+[workspace.dependencies]
+ane-sys = { path = "crates/ane-sys" }
+ane-core = { path = "crates/ane-core" }
+half = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+env_logger = "0.11"

@@ -1,0 +1,16 @@
+[package]
+name = "ane-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Python bindings for ANEForge"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+ane-sys.workspace = true
+ane-core.workspace = true
+pyo3 = { version = "0.25", features = ["extension-module"] }
+half.workspace = true

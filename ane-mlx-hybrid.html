@@ -1,0 +1,1850 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANE ⊕ MLX — Hybrid Dispatch · Spec d'implémentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #06080f;
+    --bg1: #0a0d16;
+    --bg2: #0f1220;
+    --bg3: #141829;
+    --gpu: #00b8e6;
+    --gpu-dim: rgba(0,184,230,0.12);
+    --ane: #00e676;
+    --ane-dim: rgba(0,230,118,0.1);
+    --split: #ff6b35;
+    --warn: #ffb020;
+    --warn-dim: rgba(255,176,32,0.1);
+    --red: #ff4444;
+    --muted: rgba(180,200,230,0.35);
+    --text: rgba(200,220,245,0.85);
+    --border: rgba(180,200,240,0.08);
+    --border-bright: rgba(180,200,240,0.18);
+    --mono: 'JetBrains Mono', monospace;
+    --display: 'Syne', sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  ::selection { background: rgba(0,184,230,0.25); }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    cursor: default;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,184,230,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,184,230,0.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Scanline */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 2; }
+
+  /* ── HEADER ── */
+  header {
+    padding: 48px 0 32px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+  }
+
+  header::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -100px;
+    width: 500px; height: 400px;
+    background: radial-gradient(ellipse, rgba(0,184,230,0.06) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .header-eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--gpu);
+    opacity: 0.7;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .header-eyebrow::before {
+    content: '';
+    display: inline-block;
+    width: 32px; height: 1px;
+    background: var(--gpu);
+    opacity: 0.5;
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(28px, 4vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: #fff;
+    margin-bottom: 16px;
+  }
+
+  h1 span.gpu { color: var(--gpu); }
+  h1 span.ane { color: var(--ane); }
+
+  .header-sub {
+    color: var(--muted);
+    font-size: 12px;
+    max-width: 600px;
+    line-height: 1.8;
+  }
+
+  .header-meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .meta-label {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    opacity: 0.6;
+  }
+
+  .meta-val {
+    font-size: 12px;
+    color: var(--text);
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(6,8,15,0.92);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 0;
+  }
+
+  .nav-inner {
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 0;
+  }
+
+  .nav-inner::-webkit-scrollbar { display: none; }
+
+  .nav-tab {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    padding: 14px 20px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    white-space: nowrap;
+    position: relative;
+  }
+
+  .nav-tab:hover { color: var(--text); }
+
+  .nav-tab.active {
+    color: var(--gpu);
+    border-bottom-color: var(--gpu);
+  }
+
+  .nav-tab .phase-num {
+    font-size: 9px;
+    opacity: 0.5;
+    margin-right: 6px;
+  }
+
+  /* ── SECTIONS ── */
+  .section {
+    padding: 48px 0;
+    border-bottom: 1px solid var(--border);
+    display: none;
+  }
+
+  .section.active { display: block; }
+
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .section-num {
+    font-size: 11px;
+    color: var(--gpu);
+    opacity: 0.6;
+    letter-spacing: 0.1em;
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.02em;
+  }
+
+  h3 {
+    font-family: var(--display);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+    margin-bottom: 12px;
+    margin-top: 32px;
+  }
+
+  h3:first-child { margin-top: 0; }
+
+  p {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.9;
+    margin-bottom: 16px;
+  }
+
+  p strong { color: var(--text); font-weight: 500; }
+
+  /* ── CODE BLOCKS ── */
+  .code-block {
+    position: relative;
+    margin: 20px 0;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border-bright);
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-lang {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    opacity: 0.7;
+  }
+
+  .code-file {
+    font-size: 10px;
+    color: var(--gpu);
+    opacity: 0.8;
+  }
+
+  .copy-btn {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    background: none;
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .copy-btn:hover {
+    color: var(--gpu);
+    border-color: var(--gpu);
+  }
+
+  pre {
+    background: var(--bg1);
+    padding: 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    tab-size: 2;
+  }
+
+  pre::-webkit-scrollbar { height: 4px; }
+  pre::-webkit-scrollbar-track { background: var(--bg2); }
+  pre::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+  /* Syntax coloring */
+  .kw { color: #7eb8f7; }      /* keywords */
+  .ty { color: #64d9b5; }      /* types */
+  .fn { color: #e0c97f; }      /* functions */
+  .st { color: #ce9178; }      /* strings */
+  .cm { color: #5a6a7a; font-style: italic; }  /* comments */
+  .nm { color: #b5cea8; }      /* numbers */
+  .at { color: #dcdcaa; }      /* attributes/decorators */
+  .op { color: #d4d4d4; }      /* operators */
+  .pp { color: #c586c0; }      /* preprocessor/macros */
+  .ane-c { color: var(--ane); font-weight: 500; }
+  .gpu-c { color: var(--gpu); font-weight: 500; }
+
+  /* ── LAYOUT GRIDS ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  @media (max-width: 768px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--bg1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: var(--border-bright); }
+
+  .card.gpu-card { border-left: 2px solid var(--gpu); }
+  .card.ane-card { border-left: 2px solid var(--ane); }
+  .card.warn-card { border-left: 2px solid var(--warn); background: var(--warn-dim); }
+  .card.danger-card { border-left: 2px solid var(--red); background: rgba(255,68,68,0.05); }
+
+  .card-label {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    opacity: 0.5;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .card.gpu-card .card-label { color: var(--gpu); }
+  .card.ane-card .card-label { color: var(--ane); }
+  .card.warn-card .card-label { color: var(--warn); }
+  .card.danger-card .card-label { color: var(--red); }
+
+  /* ── ARCHITECTURE DIAGRAM ── */
+  .arch-diagram {
+    background: var(--bg1);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 28px;
+    margin: 24px 0;
+    overflow-x: auto;
+  }
+
+  .arch-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 8px;
+    min-width: 600px;
+  }
+
+  .arch-node {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+    text-align: center;
+    min-width: 80px;
+    position: relative;
+  }
+
+  .arch-node.gpu-node {
+    background: var(--gpu-dim);
+    border: 1px solid rgba(0,184,230,0.3);
+    color: var(--gpu);
+  }
+
+  .arch-node.ane-node {
+    background: var(--ane-dim);
+    border: 1px solid rgba(0,230,118,0.3);
+    color: var(--ane);
+  }
+
+  .arch-node.split-node {
+    background: rgba(255,107,53,0.1);
+    border: 1px solid rgba(255,107,53,0.3);
+    color: var(--split);
+  }
+
+  .arch-node.sys-node {
+    background: rgba(200,220,245,0.04);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  .arch-arrow {
+    flex: 1;
+    height: 1px;
+    background: var(--border-bright);
+    position: relative;
+    min-width: 20px;
+  }
+
+  .arch-arrow::after {
+    content: '▶';
+    position: absolute;
+    right: -1px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 8px;
+    color: var(--border-bright);
+  }
+
+  .arch-label {
+    font-size: 9px;
+    color: var(--muted);
+    opacity: 0.5;
+    text-align: center;
+    margin-top: 3px;
+  }
+
+  /* ── PHASE TIMELINE ── */
+  .timeline {
+    position: relative;
+    padding-left: 28px;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px; top: 6px; bottom: 6px;
+    width: 1px;
+    background: var(--border);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 28px;
+  }
+
+  .timeline-dot {
+    position: absolute;
+    left: -24px;
+    top: 4px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 1px solid var(--border-bright);
+    transition: all 0.2s;
+  }
+
+  .timeline-item:hover .timeline-dot {
+    background: var(--gpu);
+    border-color: var(--gpu);
+    box-shadow: 0 0 8px rgba(0,184,230,0.4);
+  }
+
+  .timeline-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+
+  .timeline-desc {
+    font-size: 11px;
+    color: var(--muted);
+    opacity: 0.7;
+  }
+
+  /* ── METRIC ROW ── */
+  .metric-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .metric-row:last-child { border-bottom: none; }
+
+  .metric-name {
+    width: 160px;
+    font-size: 11px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .metric-bar-container {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .metric-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 1s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  .metric-val {
+    width: 60px;
+    text-align: right;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* ── WARNING BOX ── */
+  .warning {
+    background: var(--warn-dim);
+    border: 1px solid rgba(255,176,32,0.25);
+    border-radius: 3px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 11px;
+    color: var(--warn);
+    line-height: 1.7;
+  }
+
+  .warning::before { content: '⚠ '; }
+
+  .danger {
+    background: rgba(255,68,68,0.06);
+    border: 1px solid rgba(255,68,68,0.25);
+    border-radius: 3px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 11px;
+    color: #ff6666;
+    line-height: 1.7;
+  }
+
+  .danger::before { content: '✕ '; }
+
+  .info {
+    background: var(--gpu-dim);
+    border: 1px solid rgba(0,184,230,0.2);
+    border-radius: 3px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 11px;
+    color: var(--gpu);
+    line-height: 1.7;
+  }
+
+  .info::before { content: '→ '; }
+
+  .success {
+    background: var(--ane-dim);
+    border: 1px solid rgba(0,230,118,0.2);
+    border-radius: 3px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 11px;
+    color: var(--ane);
+    line-height: 1.7;
+  }
+
+  .success::before { content: '✓ '; }
+
+  /* ── BADGE ── */
+  .badge {
+    display: inline-block;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    padding: 2px 7px;
+    border-radius: 2px;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+
+  .badge-gpu { background: var(--gpu-dim); color: var(--gpu); border: 1px solid rgba(0,184,230,0.2); }
+  .badge-ane { background: var(--ane-dim); color: var(--ane); border: 1px solid rgba(0,230,118,0.2); }
+  .badge-hard { background: rgba(255,68,68,0.08); color: #ff6666; border: 1px solid rgba(255,68,68,0.2); }
+  .badge-warn { background: var(--warn-dim); color: var(--warn); border: 1px solid rgba(255,176,32,0.2); }
+
+  /* ── CLAUDE CODE PROMPT ── */
+  .cc-prompt {
+    background: var(--bg2);
+    border: 1px solid rgba(0,184,230,0.2);
+    border-radius: 4px;
+    padding: 20px;
+    margin: 20px 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cc-prompt::before {
+    content: 'CLAUDE CODE PROMPT';
+    position: absolute;
+    top: 10px; right: 14px;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    color: var(--gpu);
+    opacity: 0.5;
+  }
+
+  .cc-prompt-text {
+    font-size: 12px;
+    color: #c8d8f0;
+    line-height: 1.8;
+    padding-right: 140px;
+  }
+
+  .cc-prompt-text em {
+    color: var(--gpu);
+    font-style: normal;
+  }
+
+  /* ── MATRIX TABLE ── */
+  .matrix {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin: 16px 0;
+  }
+
+  .matrix th {
+    text-align: left;
+    padding: 8px 12px;
+    background: var(--bg2);
+    color: var(--muted);
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+  }
+
+  .matrix td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    vertical-align: top;
+  }
+
+  .matrix tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .matrix td.good { color: var(--ane); }
+  .matrix td.bad { color: #ff6666; }
+  .matrix td.mid { color: var(--warn); }
+  .matrix td.code-val { font-family: var(--mono); font-size: 11px; color: #c8d8f0; }
+
+  /* ── FOOTER ── */
+  footer {
+    padding: 32px 0;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    opacity: 0.4;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .section.active .card,
+  .section.active .code-block,
+  .section.active .arch-diagram {
+    animation: fadeInUp 0.3s ease both;
+  }
+
+  .section.active > .container > *:nth-child(1) { animation-delay: 0.02s; }
+  .section.active > .container > *:nth-child(2) { animation-delay: 0.06s; }
+  .section.active > .container > *:nth-child(3) { animation-delay: 0.1s; }
+  .section.active > .container > *:nth-child(4) { animation-delay: 0.14s; }
+
+  /* Cursor blink in code */
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .cursor { display: inline-block; width: 6px; height: 13px; background: var(--gpu); vertical-align: text-bottom; animation: blink 1.2s step-end infinite; }
+
+  /* Pulse dot */
+  @keyframes pulse-dot {
+    0%   { box-shadow: 0 0 0 0 rgba(0,230,118,0.4); }
+    70%  { box-shadow: 0 0 0 6px rgba(0,230,118,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,230,118,0); }
+  }
+  .live-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--ane);
+    margin-right: 6px;
+    animation: pulse-dot 2s infinite;
+    vertical-align: middle;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 600px) {
+    .header-meta { gap: 16px; }
+    .cc-prompt-text { padding-right: 0; }
+    .cc-prompt::before { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="container">
+    <div class="header-eyebrow">ANE ⊕ MLX · SPEC D'IMPLÉMENTATION · v0.1.0</div>
+    <h1>Hybrid <span class="gpu">GPU</span>/<span class="ane">ANE</span><br>Dispatch Engine</h1>
+    <p class="header-sub">
+      Architecture complète pour un dispatcher adaptatif par couche sur Apple Silicon.
+      Conçu pour être implémenté directement avec Claude Code — chaque section est une phase de travail autonome.
+    </p>
+    <div class="header-meta">
+      <div class="meta-item">
+        <span class="meta-label">Cible</span>
+        <span class="meta-val">Apple Silicon M2+ · macOS 14+</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Stack</span>
+        <span class="meta-val">Swift 5.9 · Metal · CoreML · MLX-Swift</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Modèle de référence</span>
+        <span class="meta-val">jina-embeddings-v3 · 768d · 12L</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Statut</span>
+        <span class="meta-val"><span class="live-dot"></span>Spec active</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <div class="container">
+    <div class="nav-inner">
+      <button class="nav-tab active" onclick="showTab(0)"><span class="phase-num">00</span>Architecture</button>
+      <button class="nav-tab" onclick="showTab(1)"><span class="phase-num">01</span>Foundation</button>
+      <button class="nav-tab" onclick="showTab(2)"><span class="phase-num">02</span>Shared Buffer</button>
+      <button class="nav-tab" onclick="showTab(3)"><span class="phase-num">03</span>Dispatcher</button>
+      <button class="nav-tab" onclick="showTab(4)"><span class="phase-num">04</span>Pipeline Overlap</button>
+      <button class="nav-tab" onclick="showTab(5)"><span class="phase-num">05</span>Thermal</button>
+      <button class="nav-tab" onclick="showTab(6)"><span class="phase-num">06</span>Benchmark</button>
+      <button class="nav-tab" onclick="showTab(7)"><span class="phase-num">07</span>Claude Code</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ══════════════════════ SECTION 0 — ARCHITECTURE ══════════════════════ -->
+<section class="section active" id="sec-0">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">00</span>
+    <h2>Vue d'architecture</h2>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <h3>Principe fondamental</h3>
+      <p>Le GPU MLX et l'ANE ne sont pas en compétition — ils ont des profils d'efficacité complémentaires selon l'<strong>arithmetic intensity</strong> des opérations. On exploite ça par couche, pas par modèle.</p>
+      <p>La clé du gain : <strong>pipeline overlap</strong>. Pendant que l'ANE traite l'attention du bloc N via CoreML, le GPU prépare la projection query/key du bloc N+1 en Metal. La latence effective = max(ANE, GPU) par window, pas sum.</p>
+
+      <div class="warning">Le gain est conditionnel au coût du transfert IOSurface. Sur M3 Ultra avec GPU à pleine bande (~800 GB/s), la copie vers ANE peut annuler le bénéfice. Sur M2/M3 base, c'est différent — benchmarker avant d'optimiser.</div>
+    </div>
+
+    <div>
+      <h3>Profil d'opérations par unité</h3>
+      <table class="matrix">
+        <tr>
+          <th>Opération</th>
+          <th>Arith. Intensity</th>
+          <th>Unité optimale</th>
+        </tr>
+        <tr><td>QKV Projection</td><td class="mid">~32 FLOP/byte</td><td class="good">ANE (MatMul dense)</td></tr>
+        <tr><td>Softmax Attention</td><td class="bad">~4 FLOP/byte</td><td class="bad">GPU (bandwidth-bound)</td></tr>
+        <tr><td>FFN Layer 1&2</td><td class="mid">~64 FLOP/byte</td><td class="bad">GPU (large MatMul)</td></tr>
+        <tr><td>LayerNorm</td><td class="bad">~2 FLOP/byte</td><td class="mid">ANE (faible W)</td></tr>
+        <tr><td>Embedding Lookup</td><td class="bad">~1 FLOP/byte</td><td class="bad">GPU (gather op)</td></tr>
+        <tr><td>LM Head</td><td class="mid">~128 FLOP/byte</td><td class="bad">GPU (vocab large)</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <h3>Data Flow</h3>
+  <div class="arch-diagram">
+    <div style="font-size:9px; color:var(--muted); opacity:0.5; letter-spacing:0.1em; margin-bottom:20px;">INFÉRENCE — FLUX DE DONNÉES PAR COUCHE</div>
+
+    <div class="arch-row">
+      <div style="width:80px; font-size:9px; color:var(--muted); opacity:0.4;">INPUT</div>
+      <div class="arch-node sys-node">Token IDs<br><span style="font-size:9px;opacity:0.5">[B, seq]</span></div>
+      <div class="arch-arrow"></div>
+      <div class="arch-node gpu-node">Embedding<br><span style="font-size:9px;opacity:0.5">GPU Metal</span></div>
+      <div class="arch-arrow"></div>
+      <div class="arch-node sys-node">Hidden<br><span style="font-size:9px;opacity:0.5">[B, S, 768]</span></div>
+      <div class="arch-arrow"></div>
+      <div class="arch-node split-node">Dispatcher<br><span style="font-size:9px;opacity:0.5">routing logic</span></div>
+    </div>
+
+    <div style="display:flex; gap:40px; margin:16px 0 16px 80px;">
+      <div>
+        <div class="arch-node gpu-node" style="margin-bottom:6px;">FFN × 12<br><span style="font-size:9px;opacity:0.5">GPU MLX-Swift</span></div>
+        <div style="font-size:9px; color:var(--muted); opacity:0.4; text-align:center;">MTLBuffer direct</div>
+      </div>
+      <div style="width:40px; display:flex; align-items:center; justify-content:center; color:var(--muted); opacity:0.3; font-size:18px;">⇄</div>
+      <div>
+        <div class="arch-node ane-node" style="margin-bottom:6px;">Attention × 12<br><span style="font-size:9px;opacity:0.5">CoreML ANE</span></div>
+        <div style="font-size:9px; color:var(--muted); opacity:0.4; text-align:center;">IOSurface shared</div>
+      </div>
+    </div>
+
+    <div class="arch-row">
+      <div style="width:80px; font-size:9px; color:var(--muted); opacity:0.4;">OUTPUT</div>
+      <div class="arch-node split-node">Merge<br><span style="font-size:9px;opacity:0.5">fence sync</span></div>
+      <div class="arch-arrow"></div>
+      <div class="arch-node gpu-node">LayerNorm<br><span style="font-size:9px;opacity:0.5">GPU Metal</span></div>
+      <div class="arch-arrow"></div>
+      <div class="arch-node gpu-node">LM Head<br><span style="font-size:9px;opacity:0.5">GPU MLX</span></div>
+      <div class="arch-arrow"></div>
+      <div class="arch-node sys-node">Logits<br><span style="font-size:9px;opacity:0.5">[B, V]</span></div>
+    </div>
+  </div>
+
+  <h3>Structure du projet</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SHELL</span>
+      <span class="code-file">project layout</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre>HybridDispatch/
+├── Sources/
+│   ├── Core/
+│   │   ├── <span class="gpu-c">MLXEngine.swift</span>          <span class="cm">// MLX-Swift wrapper, GPU ops</span>
+│   │   ├── <span class="ane-c">ANEEngine.swift</span>          <span class="cm">// CoreML wrapper, ANE dispatch</span>
+│   │   ├── <span class="fn">SharedBuffer.swift</span>        <span class="cm">// MTLBuffer ↔ IOSurface bridge</span>
+│   │   ├── <span class="fn">Dispatcher.swift</span>          <span class="cm">// Routing logic + profiling</span>
+│   │   └── <span class="fn">ThermalMonitor.swift</span>      <span class="cm">// SMC / ProcessInfo fallback</span>
+│   ├── Models/
+│   │   ├── <span class="fn">AttentionANE.mlpackage</span>    <span class="cm">// CoreML compiled attention</span>
+│   │   └── <span class="fn">JinaV3Config.swift</span>        <span class="cm">// model hyperparams</span>
+│   ├── Metal/
+│   │   ├── <span class="fn">ffn.metal</span>                 <span class="cm">// FFN kernel (fused GEGLU)</span>
+│   │   └── <span class="fn">layernorm.metal</span>           <span class="cm">// online LayerNorm kernel</span>
+│   └── Benchmark/
+│       └── <span class="fn">BenchmarkRunner.swift</span>     <span class="cm">// timing harness, CSV export</span>
+├── Package.swift
+└── Tests/</pre>
+  </div>
+
+  <div class="grid-3" style="margin-top:24px">
+    <div class="card gpu-card">
+      <div class="card-label">GPU — MLX-Swift</div>
+      <p style="margin:0; font-size:11px; line-height:1.7">Large MatMul, vocab projection, embedding. Bande passante ~400-800 GB/s selon puce. Idéal pour arithmetic intensity ≥ 32 FLOP/byte.</p>
+    </div>
+    <div class="card ane-card">
+      <div class="card-label">ANE — CoreML</div>
+      <p style="margin:0; font-size:11px; line-height:1.7">QKV projection, LayerNorm, opérations denses de dimension modérée. 15.8 TOPS sur M3, ~2W. Format NHWC obligatoire, max 16K ops/model.</p>
+    </div>
+    <div class="card warn-card">
+      <div class="card-label">Attention critique</div>
+      <p style="margin:0; font-size:11px; line-height:1.7">Le softmax et la full-attention NE tournent PAS efficacement sur ANE. Trop bandwidth-bound. Laisser sur GPU ou utiliser flash attention Metal.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════ SECTION 1 — FOUNDATION ══════════════════════ -->
+<section class="section" id="sec-1">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">01</span>
+    <h2>Foundation — Setup MLX + CoreML</h2>
+  </div>
+
+  <h3>Package.swift</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Package.swift</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="cm">// swift-tools-version: 5.9</span>
+<span class="kw">import</span> PackageDescription
+
+<span class="kw">let</span> package = <span class="ty">Package</span>(
+    name: <span class="st">"HybridDispatch"</span>,
+    platforms: [.<span class="fn">macOS</span>(.<span class="nm">v14</span>)],
+    dependencies: [
+        <span class="cm">// MLX-Swift — opérations GPU Metal</span>
+        .<span class="fn">package</span>(
+            url: <span class="st">"https://github.com/ml-explore/mlx-swift"</span>,
+            from: <span class="st">"0.18.0"</span>
+        ),
+    ],
+    targets: [
+        .<span class="fn">executableTarget</span>(
+            name: <span class="st">"HybridDispatch"</span>,
+            dependencies: [
+                .<span class="fn">product</span>(name: <span class="st">"MLX"</span>,     package: <span class="st">"mlx-swift"</span>),
+                .<span class="fn">product</span>(name: <span class="st">"MLXNN"</span>,   package: <span class="st">"mlx-swift"</span>),
+                .<span class="fn">product</span>(name: <span class="st">"MLXRandom"</span>, package: <span class="st">"mlx-swift"</span>),
+            ],
+            <span class="cm">// CoreML + Metal via frameworks système — pas de dep externe</span>
+            linkerSettings: [
+                .<span class="fn">linkedFramework</span>(<span class="st">"CoreML"</span>),
+                .<span class="fn">linkedFramework</span>(<span class="st">"Metal"</span>),
+                .<span class="fn">linkedFramework</span>(<span class="st">"IOSurface"</span>),
+            ]
+        )
+    ]
+)</pre>
+  </div>
+
+  <h3>MLXEngine — wrapper GPU</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Sources/Core/MLXEngine.swift</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="kw">import</span> MLX
+<span class="kw">import</span> MLXNN
+<span class="kw">import</span> Metal
+
+<span class="kw">final class</span> <span class="gpu-c">MLXEngine</span> {
+    <span class="kw">private let</span> device: <span class="ty">MTLDevice</span>
+    <span class="kw">private let</span> cmdQueue: <span class="ty">MTLCommandQueue</span>
+
+    <span class="cm">// Cache des poids compilés MLX — évite la recompilation JIT</span>
+    <span class="kw">private var</span> weightCache: [<span class="ty">String</span>: <span class="ty">MLXArray</span>] = [:]
+
+    <span class="kw">init</span>() <span class="kw">throws</span> {
+        <span class="kw">guard let</span> device = <span class="ty">MTLCreateSystemDefaultDevice</span>() <span class="kw">else</span> {
+            <span class="kw">throw</span> <span class="ty">EngineError</span>.noMetalDevice
+        }
+        <span class="kw">self</span>.device = device
+        <span class="kw">guard let</span> q = device.<span class="fn">makeCommandQueue</span>() <span class="kw">else</span> {
+            <span class="kw">throw</span> <span class="ty">EngineError</span>.commandQueueFailed
+        }
+        <span class="kw">self</span>.cmdQueue = q
+
+        <span class="cm">// Force MLX à utiliser le même device — unifié</span>
+        <span class="ty">MLX</span>.<span class="fn">setDefaultDevice</span>(.<span class="fn">gpu</span>)
+    }
+
+    <span class="cm">/// FFN forward pass — fused GEGLU + projection</span>
+    <span class="cm">/// Input: [batch, seq, d_model] float16</span>
+    <span class="cm">/// Returns: [batch, seq, d_model] float16</span>
+    <span class="kw">func</span> <span class="fn">ffnForward</span>(
+        hidden: <span class="ty">MLXArray</span>,
+        w1: <span class="ty">MLXArray</span>,
+        w2: <span class="ty">MLXArray</span>,
+        w3: <span class="ty">MLXArray</span>
+    ) -> <span class="ty">MLXArray</span> {
+        <span class="cm">// GEGLU : gate × silu(gate) puis projection</span>
+        <span class="kw">let</span> gate = <span class="ty">MLXNN</span>.<span class="fn">silu</span>(<span class="fn">matmul</span>(hidden, w1.<span class="fn">transposed</span>()))
+        <span class="kw">let</span> up   = <span class="fn">matmul</span>(hidden, w3.<span class="fn">transposed</span>())
+        <span class="kw">let</span> act  = gate * up
+        <span class="kw">return</span> <span class="fn">matmul</span>(act, w2.<span class="fn">transposed</span>())
+    }
+
+    <span class="cm">/// Lit un MTLBuffer existant comme MLXArray sans copie</span>
+    <span class="cm">/// Utilise le backing store de mémoire unifiée</span>
+    <span class="kw">func</span> <span class="fn">wrapBuffer</span>(_ buffer: <span class="ty">MTLBuffer</span>, shape: [<span class="ty">Int</span>]) -> <span class="ty">MLXArray</span> {
+        <span class="cm">// NOTE: mlx-swift 0.18+ supporte MLXArray(buffer:shape:dtype:)</span>
+        <span class="cm">// Vérifier l'API exacte selon version — peut nécessiter unsafe ptr</span>
+        <span class="kw">let</span> ptr = buffer.<span class="fn">contents</span>().<span class="fn">assumingMemoryBound</span>(to: <span class="ty">Float16</span>.<span class="kw">self</span>)
+        <span class="kw">return</span> <span class="ty">MLXArray</span>(ptr, shape, dtype: .<span class="fn">float16</span>)
+    }
+}
+
+<span class="kw">enum</span> <span class="ty">EngineError</span>: <span class="ty">Error</span> {
+    <span class="kw">case</span> noMetalDevice
+    <span class="kw">case</span> commandQueueFailed
+    <span class="kw">case</span> bufferAllocationFailed
+}</pre>
+  </div>
+
+  <h3>ANEEngine — wrapper CoreML</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Sources/Core/ANEEngine.swift</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="kw">import</span> CoreML
+
+<span class="kw">final class</span> <span class="ane-c">ANEEngine</span> {
+    <span class="kw">private let</span> model: <span class="ty">MLModel</span>
+    <span class="kw">private let</span> config: <span class="ty">MLModelConfiguration</span>
+
+    <span class="kw">init</span>(modelURL: <span class="ty">URL</span>) <span class="kw">throws</span> {
+        config = <span class="ty">MLModelConfiguration</span>()
+
+        <span class="cm">// CRITIQUE : forcer ANE — sinon CoreML peut fallback GPU</span>
+        config.computeUnits = .<span class="fn">cpuAndNeuralEngine</span>
+
+        <span class="cm">// Pré-compiler vers mlmodelc si pas déjà fait</span>
+        <span class="kw">let</span> compiledURL: <span class="ty">URL</span>
+        <span class="kw">if</span> modelURL.<span class="fn">pathExtension</span> == <span class="st">"mlpackage"</span> {
+            compiledURL = <span class="kw">try</span> <span class="ty">MLModel</span>.<span class="fn">compileModel</span>(at: modelURL)
+        } <span class="kw">else</span> {
+            compiledURL = modelURL <span class="cm">// .mlmodelc déjà compilé</span>
+        }
+
+        <span class="kw">self</span>.model = <span class="kw">try</span> <span class="ty">MLModel</span>(contentsOf: compiledURL, configuration: config)
+    }
+
+    <span class="cm">/// Attention forward (QKV + scaled dot-product)</span>
+    <span class="cm">/// IMPORTANT: CoreML attend NHWC, shape [1, seq, heads, d_head]</span>
+    <span class="kw">func</span> <span class="fn">attentionForward</span>(
+        query: <span class="ty">MLMultiArray</span>,
+        key:   <span class="ty">MLMultiArray</span>,
+        value: <span class="ty">MLMultiArray</span>
+    ) <span class="kw">throws</span> -> <span class="ty">MLMultiArray</span> {
+        <span class="kw">let</span> input = <span class="kw">try</span> <span class="ty">MLDictionaryFeatureProvider</span>(dictionary: [
+            <span class="st">"query"</span>: query,
+            <span class="st">"key"</span>:   key,
+            <span class="st">"value"</span>: value,
+        ])
+        <span class="kw">let</span> output = <span class="kw">try</span> model.<span class="fn">prediction</span>(from: input)
+
+        <span class="kw">guard let</span> result = output.<span class="fn">featureValue</span>(for: <span class="st">"attn_output"</span>)?.<span class="fn">multiArrayValue</span> <span class="kw">else</span> {
+            <span class="kw">throw</span> <span class="ty">ANEError</span>.outputMissing
+        }
+        <span class="kw">return</span> result
+    }
+
+    <span class="cm">/// Version async — utilise MLPredictionOptions pour batch + queue dédiée</span>
+    <span class="kw">func</span> <span class="fn">attentionAsync</span>(
+        query: <span class="ty">MLMultiArray</span>,
+        key: <span class="ty">MLMultiArray</span>,
+        value: <span class="ty">MLMultiArray</span>
+    ) <span class="kw">async throws</span> -> <span class="ty">MLMultiArray</span> {
+        <span class="kw">let</span> opts = <span class="ty">MLPredictionOptions</span>()
+        opts.<span class="fn">usesCPUOnly</span> = <span class="kw">false</span>
+
+        <span class="kw">let</span> input = <span class="kw">try</span> <span class="ty">MLDictionaryFeatureProvider</span>(dictionary: [
+            <span class="st">"query"</span>: query, <span class="st">"key"</span>: key, <span class="st">"value"</span>: value
+        ])
+        <span class="kw">return try await</span> <span class="ty">Task</span>.<span class="fn">detached</span>(priority: .<span class="fn">userInitiated</span>) {
+            <span class="kw">let</span> out = <span class="kw">try</span> <span class="kw">self</span>.model.<span class="fn">prediction</span>(from: input, options: opts)
+            <span class="kw">return</span> out.<span class="fn">featureValue</span>(for: <span class="st">"attn_output"</span>)!.<span class="fn">multiArrayValue</span>!
+        }.<span class="fn">value</span>
+    }
+}
+
+<span class="kw">enum</span> <span class="ty">ANEError</span>: <span class="ty">Error</span> {
+    <span class="kw">case</span> outputMissing
+    <span class="kw">case</span> shapesMismatch
+}</pre>
+  </div>
+
+  <div class="danger">
+    <strong>computeUnits = .cpuAndNeuralEngine</strong> ne garantit pas que CoreML utilisera l'ANE. Apple décide au runtime selon la forme du graphe. Utiliser <code>coremltools.models.utils.rename_feature()</code> + profiling Instruments (Core ML Performance) pour vérifier. Sur M1/M2, .neuralEngineOnly force le comportement mais peut planter si une op n'est pas supportée.
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════ SECTION 2 — SHARED BUFFER ══════════════════════ -->
+<section class="section" id="sec-2">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">02</span>
+    <h2>Shared Buffer — Zero-Copy Bridge</h2>
+  </div>
+
+  <p>Le vrai problème soulevé dans le post original : les transferts IOSurface via kernel calls. La solution : un <strong>MTLBuffer avec storageMode .shared</strong> comme backing store unique, exposé à CoreML via <code>MLMultiArray(dataPointer:)</code> sans copie.</p>
+
+  <div class="warning">
+    Cette technique fonctionne sur Apple Silicon (mémoire unifiée). Sur Intel Mac ou si le GPU est discret, la mémoire n'est pas unifiée et la copie est inévitable — à détecter au runtime via <code>MTLDevice.hasUnifiedMemory</code>.
+  </div>
+
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Sources/Core/SharedBuffer.swift</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="kw">import</span> Metal
+<span class="kw">import</span> CoreML
+
+<span class="cm">/// Buffer partagé Metal ↔ CoreML sans copie intermédiaire.</span>
+<span class="cm">/// Exploite la mémoire unifiée d'Apple Silicon.</span>
+<span class="kw">final class</span> <span class="fn">SharedBuffer</span> {
+
+    <span class="kw">let</span> mtlBuffer: <span class="ty">MTLBuffer</span>
+    <span class="kw">let</span> byteCount: <span class="ty">Int</span>
+    <span class="kw">let</span> shape: [<span class="ty">Int</span>]
+    <span class="kw">let</span> dtype: <span class="ty">MLMultiArrayDataType</span>
+
+    <span class="cm">// Strides pour MLMultiArray — doit matcher layout Metal (row-major)</span>
+    <span class="kw">private let</span> strides: [<span class="ty">NSNumber</span>]
+
+    <span class="kw">init</span>(
+        device: <span class="ty">MTLDevice</span>,
+        shape: [<span class="ty">Int</span>],
+        dtype: <span class="ty">MLMultiArrayDataType</span> = .<span class="fn">float16</span>
+    ) <span class="kw">throws</span> {
+        <span class="kw">guard</span> device.<span class="fn">hasUnifiedMemory</span> <span class="kw">else</span> {
+            <span class="kw">throw</span> <span class="ty">SharedBufferError</span>.noUnifiedMemory
+        }
+
+        <span class="kw">let</span> elementSize = dtype == .<span class="fn">float16</span> ? <span class="nm">2</span> : <span class="nm">4</span>
+        <span class="kw">let</span> elementCount = shape.<span class="fn">reduce</span>(<span class="nm">1</span>, *)
+        byteCount = elementCount * elementSize
+
+        <span class="cm">// .storageModeShared = CPU + GPU accèdent au même backing</span>
+        <span class="cm">// Alignement 256 bytes requis par Metal pour les compute shaders</span>
+        <span class="kw">let</span> alignedBytes = (<span class="fn">byteCount</span> + <span class="nm">255</span>) & ~<span class="nm">255</span>
+        <span class="kw">guard let</span> buf = device.<span class="fn">makeBuffer</span>(
+            length: alignedBytes,
+            options: [.<span class="fn">storageModeShared</span>]
+        ) <span class="kw">else</span> {
+            <span class="kw">throw</span> <span class="ty">SharedBufferError</span>.allocationFailed
+        }
+
+        <span class="kw">self</span>.mtlBuffer = buf
+        <span class="kw">self</span>.shape = shape
+        <span class="kw">self</span>.dtype = dtype
+
+        <span class="cm">// Calcul des strides row-major</span>
+        <span class="kw">var</span> s: [<span class="ty">Int</span>] = [<span class="nm">1</span>]
+        <span class="kw">for</span> i <span class="kw">in</span> (<span class="nm">1</span>..&lt;shape.count).<span class="fn">reversed</span>() {
+            s.<span class="fn">insert</span>(s[<span class="nm">0</span>] * shape[i], at: <span class="nm">0</span>)
+        }
+        <span class="kw">self</span>.strides = s.<span class="fn">map</span> { <span class="ty">NSNumber</span>(value: $0 * elementSize) }
+    }
+
+    <span class="cm">/// Vue CoreML — AUCUNE copie, pointe directement vers le MTLBuffer</span>
+    <span class="kw">func</span> <span class="fn">coreMLView</span>() <span class="kw">throws</span> -> <span class="ty">MLMultiArray</span> {
+        <span class="kw">let</span> ptr = mtlBuffer.<span class="fn">contents</span>()
+        <span class="kw">return try</span> <span class="ty">MLMultiArray</span>(
+            dataPointer: ptr,
+            shape: shape.<span class="fn">map</span> { <span class="ty">NSNumber</span>(value: $0) },
+            dataType: dtype,
+            strides: strides,
+            deallocator: <span class="kw">nil</span>  <span class="cm">// MTLBuffer gère la durée de vie</span>
+        )
+    }
+
+    <span class="cm">/// Fence Metal — garantit que le GPU a terminé avant lecture CPU/ANE</span>
+    <span class="kw">func</span> <span class="fn">waitForGPU</span>(_ cmdBuffer: <span class="ty">MTLCommandBuffer</span>) {
+        cmdBuffer.<span class="fn">waitUntilCompleted</span>()
+        <span class="cm">// Alternative non-bloquante avec completion handler :</span>
+        <span class="cm">// cmdBuffer.addCompletedHandler { _ in self.aneCanStart.signal() }</span>
+    }
+}</pre>
+  </div>
+
+  <h3>Contrainte de format — NCHW vs NHWC</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">format conversion (si nécessaire)</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="cm">// Metal opère naturellement en NCHW [batch, channels, height, width]</span>
+<span class="cm">// CoreML/ANE attend NHWC [batch, height, width, channels]</span>
+<span class="cm">// Pour les transformeurs : [B, seq, heads, d_head] — pas de transposition si</span>
+<span class="cm">// on organise les dims correctement dès le départ.</span>
+
+<span class="cm">// SOLUTION : définir le layout Metal aussi en NHWC pour attention</span>
+<span class="cm">// Ce n'est pas le défaut MLX — il faut forcer avec .transposed()</span>
+
+<span class="kw">extension</span> <span class="ty">SharedBuffer</span> {
+    <span class="cm">/// Transposition légère via Metal kernel — si inévitable</span>
+    <span class="cm">/// [B, H, S, D] → [B, S, H, D] via permute kernel</span>
+    <span class="kw">func</span> <span class="fn">permuteAsync</span>(
+        _ cmdBuf: <span class="ty">MTLCommandBuffer</span>,
+        perm: [<span class="ty">Int</span>],
+        pipelineState: <span class="ty">MTLComputePipelineState</span>
+    ) {
+        <span class="cm">// Utiliser un kernel Metal léger (~0.05ms)</span>
+        <span class="cm">// Coût minimal comparé à une copie CPU</span>
+        <span class="kw">let</span> enc = cmdBuf.<span class="fn">makeComputeCommandEncoder</span>()!
+        enc.<span class="fn">setComputePipelineState</span>(pipelineState)
+        enc.<span class="fn">setBuffer</span>(mtlBuffer, offset: <span class="nm">0</span>, index: <span class="nm">0</span>)
+        <span class="cm">// ... dispatch threads</span>
+        enc.<span class="fn">endEncoding</span>()
+    }
+}</pre>
+  </div>
+
+  <div class="info">
+    Pour les transformeurs avec <strong>seq ≤ 512</strong>, organiser le layout d'origine en [B, seq, heads, d_head] (NHWC-like) évite toute transposition. C'est le choix architectural à faire lors de l'export CoreML.
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════ SECTION 3 — DISPATCHER ══════════════════════ -->
+<section class="section" id="sec-3">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">03</span>
+    <h2>Dispatcher — Routing Logic</h2>
+  </div>
+
+  <p>Le dispatcher est le cerveau du système. Il décide à chaque couche, et potentiellement à chaque inférence, quelle unité exécute quoi. La décision est basée sur <strong>trois signaux</strong> : type d'opération (statique), profil thermique (dynamique), et budget latence (contextuel).</p>
+
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Sources/Core/Dispatcher.swift</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="kw">import</span> Foundation
+
+<span class="cm">// ─── Types ───────────────────────────────────────────────────</span>
+
+<span class="kw">enum</span> <span class="ty">ComputeUnit</span> { <span class="kw">case</span> gpu, ane, gpuAndAne }
+
+<span class="kw">struct</span> <span class="ty">LayerProfile</span> {
+    <span class="kw">let</span> layerIdx: <span class="ty">Int</span>
+    <span class="kw">let</span> opType: <span class="ty">OpType</span>
+    <span class="kw">var</span> measuredGPU_ns: <span class="ty">UInt64</span> = <span class="nm">0</span>
+    <span class="kw">var</span> measuredANE_ns: <span class="ty">UInt64</span> = <span class="nm">0</span>
+    <span class="kw">var</span> transferCost_ns: <span class="ty">UInt64</span> = <span class="nm">0</span>
+}
+
+<span class="kw">enum</span> <span class="ty">OpType</span> {
+    <span class="kw">case</span> embedding
+    <span class="kw">case</span> qkvProjection
+    <span class="kw">case</span> scaledDotProductAttention
+    <span class="kw">case</span> ffn
+    <span class="kw">case</span> layerNorm
+    <span class="kw">case</span> lmHead
+
+    <span class="cm">/// Unité statiquement préférée — avant mesures</span>
+    <span class="kw">var</span> defaultUnit: <span class="ty">ComputeUnit</span> {
+        <span class="kw">switch self</span> {
+        <span class="kw">case</span> .embedding:                  <span class="kw">return</span> .gpu
+        <span class="kw">case</span> .qkvProjection:              <span class="kw">return</span> .ane  <span class="cm">// ANE excelle MatMul modéré</span>
+        <span class="kw">case</span> .scaledDotProductAttention:  <span class="kw">return</span> .gpu  <span class="cm">// bandwidth-bound → GPU</span>
+        <span class="kw">case</span> .ffn:                        <span class="kw">return</span> .gpu  <span class="cm">// large MatMul → GPU</span>
+        <span class="kw">case</span> .layerNorm:                  <span class="kw">return</span> .ane  <span class="cm">// faible arith intensity</span>
+        <span class="kw">case</span> .lmHead:                     <span class="kw">return</span> .gpu  <span class="cm">// vocab × d_model grand</span>
+        }
+    }
+}
+
+<span class="cm">// ─── Dispatcher ──────────────────────────────────────────────</span>
+
+<span class="kw">final class</span> <span class="fn">Dispatcher</span> {
+    <span class="kw">private var</span> profiles: [<span class="ty">LayerProfile</span>] = []
+    <span class="kw">private let</span> thermal: <span class="ty">ThermalMonitor</span>
+    <span class="kw">private var</span> calibrated = <span class="kw">false</span>
+
+    <span class="cm">// Seuil : si ANE_time + transfer_time > GPU_time * margin → GPU</span>
+    <span class="kw">private let</span> marginFactor: <span class="ty">Double</span> = <span class="nm">1.05</span>
+
+    <span class="kw">init</span>(thermal: <span class="ty">ThermalMonitor</span>) {
+        <span class="kw">self</span>.thermal = thermal
+    }
+
+    <span class="cm">/// Décision de routage pour une couche donnée</span>
+    <span class="kw">func</span> <span class="fn">route</span>(layer: <span class="ty">Int</span>, op: <span class="ty">OpType</span>) -> <span class="ty">ComputeUnit</span> {
+        <span class="cm">// Phase 1 : warm-up — utiliser defaults statiques</span>
+        <span class="kw">guard</span> calibrated <span class="kw">else</span> { <span class="kw">return</span> op.defaultUnit }
+
+        <span class="kw">guard</span> layer < profiles.count <span class="kw">else</span> { <span class="kw">return</span> op.defaultUnit }
+        <span class="kw">let</span> p = profiles[layer]
+
+        <span class="cm">// Coût effectif ANE = temps ANE + transfert IOSurface</span>
+        <span class="kw">let</span> aneCost  = <span class="ty">Double</span>(p.measuredANE_ns + p.transferCost_ns)
+        <span class="kw">let</span> gpuCost  = <span class="ty">Double</span>(p.measuredGPU_ns)
+
+        <span class="cm">// Ajustement thermique : si GPU throttle, avantage ANE</span>
+        <span class="kw">let</span> thermalMult = thermal.gpuThrottleFactor  <span class="cm">// 1.0 = normal, >1 = throttled</span>
+        <span class="kw">let</span> adjustedGPU = gpuCost * thermalMult
+
+        <span class="kw">if</span> aneCost < adjustedGPU * marginFactor {
+            <span class="kw">return</span> .ane
+        }
+        <span class="kw">return</span> .gpu
+    }
+
+    <span class="cm">/// Calibration — 10 runs warm-up + 50 runs mesurés</span>
+    <span class="kw">func</span> <span class="fn">calibrate</span>(
+        mlx: <span class="ty">MLXEngine</span>,
+        ane: <span class="ty">ANEEngine</span>,
+        sampleInput: <span class="ty">SampleBatch</span>
+    ) <span class="kw">async</span> {
+        <span class="cm">// Pour chaque couche et chaque op, mesurer GPU et ANE</span>
+        <span class="cm">// Stocker dans profiles[]</span>
+        <span class="cm">// ... (voir Benchmark section)</span>
+        calibrated = <span class="kw">true</span>
+    }
+}</pre>
+  </div>
+
+  <div class="grid-2" style="margin-top:20px">
+    <div class="card">
+      <div class="card-label">ROUTING MATRIX PAR DEFAULT</div>
+      <table class="matrix" style="margin:8px 0 0">
+        <tr><th>Opération</th><th>Default</th><th>Après calibration</th></tr>
+        <tr><td>Embedding</td><td class="gpu-c">GPU</td><td class="mid">Toujours GPU</td></tr>
+        <tr><td>QKV Proj</td><td class="ane-c">ANE</td><td class="mid">Mesure décide</td></tr>
+        <tr><td>Softmax+Attn</td><td class="gpu-c">GPU</td><td class="mid">Toujours GPU</td></tr>
+        <tr><td>FFN</td><td class="gpu-c">GPU</td><td class="mid">Toujours GPU</td></tr>
+        <tr><td>LayerNorm</td><td class="ane-c">ANE</td><td class="mid">Mesure décide</td></tr>
+        <tr><td>LM Head</td><td class="gpu-c">GPU</td><td class="mid">Toujours GPU</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card warn-card" style="margin-bottom:12px">
+        <div class="card-label">LIMITATION RÉELLE</div>
+        <p style="margin:0; font-size:11px; line-height:1.7; color:var(--text)">CoreML ne permet pas de passer des MLMultiArray de couche en couche sans re-wrapper à chaque fois. Le overhead est ~0.05ms/couche. Sur 12 couches = 0.6ms fixe. À mesurer contre le gain ANE.</p>
+      </div>
+      <div class="card danger-card">
+        <div class="card-label">ANE LIMIT — 16K OPS</div>
+        <p style="margin:0; font-size:11px; line-height:1.7; color:var(--text)">Un mlpackage CoreML ne peut pas dépasser ~16 000 ops internes (limite ANE hardware M-series). Pour 12 couches d'attention, découper en 2-3 mlpackages séparés.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════ SECTION 4 — OVERLAP ══════════════════════ -->
+<section class="section" id="sec-4">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">04</span>
+    <h2>Pipeline Overlap — La vraie source de gain</h2>
+  </div>
+
+  <p>L'overlap n'est possible qu'entre couches distinctes, pas à l'intérieur d'une couche. L'attention du bloc N peut tourner sur ANE pendant que le GPU calcule la <strong>projection QKV du bloc N+1</strong> (qui ne dépend que du LayerNorm précédent, déjà terminé).</p>
+
+  <div class="arch-diagram">
+    <div style="font-size:9px; color:var(--muted); opacity:0.5; letter-spacing:0.1em; margin-bottom:16px;">TIMELINE D'EXÉCUTION — OVERLAP BLOC N / N+1</div>
+    <div style="display:grid; grid-template-columns: 80px 1fr; gap:8px; font-size:10px; min-width:500px;">
+      <div style="color:var(--muted); opacity:0.4; display:flex; align-items:center;">GPU</div>
+      <div style="position:relative; height:28px; background:rgba(255,255,255,0.03); border-radius:2px;">
+        <div style="position:absolute; left:0%; width:20%; height:100%; background:var(--gpu-dim); border:1px solid rgba(0,184,230,0.3); border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--gpu)">FFN[N]</div>
+        <div style="position:absolute; left:22%; width:18%; height:100%; background:var(--gpu-dim); border:1px solid rgba(0,184,230,0.3); border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--gpu)">QKV[N+1]</div>
+        <div style="position:absolute; left:42%; width:20%; height:100%; background:var(--gpu-dim); border:1px solid rgba(0,184,230,0.3); border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--gpu)">FFN[N+1]</div>
+        <div style="position:absolute; left:64%; width:18%; height:100%; background:var(--gpu-dim); border:1px solid rgba(0,184,230,0.3); border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--gpu)">QKV[N+2]</div>
+      </div>
+      <div style="color:var(--muted); opacity:0.4; display:flex; align-items:center;">ANE</div>
+      <div style="position:relative; height:28px; background:rgba(255,255,255,0.03); border-radius:2px;">
+        <div style="position:absolute; left:20%; width:20%; height:100%; background:var(--ane-dim); border:1px solid rgba(0,230,118,0.3); border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--ane)">Attn[N]</div>
+        <div style="position:absolute; left:42%; width:20%; height:100%; background:var(--ane-dim); border:1px solid rgba(0,230,118,0.3); border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--ane)">Attn[N+1]</div>
+        <div style="position:absolute; left:64%; width:18%; height:100%; background:var(--ane-dim); border:1px solid rgba(0,230,118,0.3); border-radius:2px; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--ane)">Attn[N+2]</div>
+      </div>
+      <div></div>
+      <div style="display:flex; justify-content:space-between; font-size:8px; color:var(--muted); opacity:0.3; padding:4px 0;">
+        <span>0ms</span><span>1ms</span><span>2ms</span><span>3ms</span><span>4ms</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Pipeline overlap — async/await pattern</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="cm">/// Exécution d'un bloc transformer avec overlap GPU ↔ ANE</span>
+<span class="cm">/// Précondition : QKV du bloc courant déjà calculé sur GPU</span>
+<span class="kw">func</span> <span class="fn">transformerBlockOverlap</span>(
+    hidden: <span class="ty">MLXArray</span>,
+    weights: <span class="ty">BlockWeights</span>,
+    nextWeights: <span class="ty">BlockWeights</span>?,
+    layerIdx: <span class="ty">Int</span>
+) <span class="kw">async throws</span> -> <span class="ty">MLXArray</span> {
+
+    <span class="cm">// ① LayerNorm sur GPU (fast, ~0.1ms)</span>
+    <span class="kw">let</span> normed = gpu.<span class="fn">layerNorm</span>(hidden, w: weights.norm1_w, b: weights.norm1_b)
+
+    <span class="cm">// ② QKV projection — GPU pour la couche courante</span>
+    <span class="kw">let</span> (q, k, v) = gpu.<span class="fn">qkvProject</span>(normed, weights: weights.attn)
+
+    <span class="cm">// ③ Transférer Q,K,V vers SharedBuffer pour ANE</span>
+    <span class="kw">let</span> qBuf = <span class="kw">try</span> <span class="ty">SharedBuffer</span>(device: device, shape: q.shape)
+    q.<span class="fn">copyToBuffer</span>(qBuf.mtlBuffer)  <span class="cm">// GPU memcpy — très rapide</span>
+    <span class="cm">// Idem K, V</span>
+
+    <span class="cm">// ④ LANCER ANE ASYNC — ne pas attendre</span>
+    <span class="kw">async let</span> attnResult = ane.<span class="fn">attentionAsync</span>(
+        query: <span class="kw">try</span> qBuf.<span class="fn">coreMLView</span>(),
+        key:   <span class="kw">try</span> kBuf.<span class="fn">coreMLView</span>(),
+        value: <span class="kw">try</span> vBuf.<span class="fn">coreMLView</span>()
+    )
+
+    <span class="cm">// ⑤ PENDANT CE TEMPS — GPU calcule QKV du bloc SUIVANT</span>
+    <span class="kw">var</span> nextQKV: (q: <span class="ty">MLXArray</span>, k: <span class="ty">MLXArray</span>, v: <span class="ty">MLXArray</span>)?
+    <span class="kw">if let</span> nw = nextWeights {
+        <span class="kw">let</span> nextNormed = gpu.<span class="fn">layerNorm</span>(hidden, w: nw.norm1_w, b: nw.norm1_b)
+        nextQKV = gpu.<span class="fn">qkvProject</span>(nextNormed, weights: nw.attn)
+        <span class="cm">// GPU libre pour la prochaine itération</span>
+    }
+
+    <span class="cm">// ⑥ ATTENDRE l'ANE — normalement déjà fini</span>
+    <span class="kw">let</span> attn = <span class="kw">try await</span> attnResult
+
+    <span class="cm">// ⑦ Projection de sortie + résidu — GPU</span>
+    <span class="kw">let</span> attnMLX = <span class="fn">mlxFromCoreML</span>(attn)  <span class="cm">// wrap sans copie</span>
+    <span class="kw">let</span> proj    = gpu.<span class="fn">outProject</span>(attnMLX, w: weights.attn.out)
+    <span class="kw">let</span> res1    = hidden + proj
+
+    <span class="cm">// ⑧ FFN — GPU</span>
+    <span class="kw">let</span> normed2 = gpu.<span class="fn">layerNorm</span>(res1, w: weights.norm2_w, b: weights.norm2_b)
+    <span class="kw">let</span> ffnOut  = gpu.<span class="fn">ffnForward</span>(hidden: normed2,
+                                   w1: weights.ffn.w1,
+                                   w2: weights.ffn.w2,
+                                   w3: weights.ffn.w3)
+    <span class="kw">return</span> res1 + ffnOut
+}</pre>
+  </div>
+
+  <div class="warning">
+    Le gain réel de l'overlap dépend du ratio <code>t_ANE / t_GPU_next_QKV</code>. Si t_ANE ≫ t_GPU_QKV, le GPU attend quand même. Mesurer ce ratio en calibration et activer l'overlap seulement si le gain estimé dépasse le coût de synchronisation (~0.1ms de fence overhead).
+  </div>
+
+  <h3>Double-buffer pour overlap maximal</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Double-buffer pattern</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="cm">// Au lieu d'allouer/libérer des SharedBuffers à chaque couche,</span>
+<span class="cm">// pré-allouer un pool de 2 buffers et les alterner (ping-pong)</span>
+
+<span class="kw">final class</span> <span class="fn">BufferPool</span> {
+    <span class="kw">private let</span> buffers: [<span class="ty">SharedBuffer</span>]  <span class="cm">// taille 2</span>
+    <span class="kw">private var</span> current = <span class="nm">0</span>
+
+    <span class="kw">func</span> <span class="fn">next</span>() -> <span class="ty">SharedBuffer</span> {
+        current = (current + <span class="nm">1</span>) % <span class="nm">2</span>
+        <span class="kw">return</span> buffers[current]
+    }
+}
+<span class="cm">// ANE lit sur buffer[0] pendant que GPU écrit sur buffer[1]</span>
+<span class="cm">// L'itération suivante : GPU écrit sur buffer[0] (ANE a fini), ANE lit buffer[1]</span></pre>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════ SECTION 5 — THERMAL ══════════════════════ -->
+<section class="section" id="sec-5">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">05</span>
+    <h2>Thermal Monitor — Awareness sans kext</h2>
+  </div>
+
+  <div class="danger">
+    Accéder aux capteurs SMC directement (températures GPU, ANE) nécessite des entitlements privés Apple ou un kext sur macOS. En userspace sans entitlement, c'est impossible proprement. Les solutions "IOKit SMC" en open-source utilisent des interfaces non documentées qui peuvent casser à chaque mise à jour macOS.
+  </div>
+
+  <p>La stratégie réaliste : utiliser <strong>deux niveaux de signal</strong>, du plus au moins précis.</p>
+
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Sources/Core/ThermalMonitor.swift</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="kw">import</span> Foundation
+
+<span class="kw">final class</span> <span class="fn">ThermalMonitor</span> {
+
+    <span class="cm">// ── Niveau 1 : ProcessInfo.thermalState (public API) ──────────</span>
+    <span class="cm">// Granularité : 4 états (nominal, fair, serious, critical)</span>
+    <span class="cm">// Latence : ~1s pour refléter le changement réel</span>
+    <span class="cm">// Fiable, documenté, disponible sur iOS aussi</span>
+
+    <span class="kw">private var</span> thermalObserver: <span class="ty">NSObjectProtocol</span>?
+
+    <span class="kw">var</span> gpuThrottleFactor: <span class="ty">Double</span> {
+        <span class="kw">switch</span> <span class="ty">ProcessInfo</span>.processInfo.thermalState {
+        <span class="kw">case</span> .nominal:  <span class="kw">return</span> <span class="nm">1.0</span>   <span class="cm">// GPU à pleine vitesse</span>
+        <span class="kw">case</span> .fair:     <span class="kw">return</span> <span class="nm">1.15</span>  <span class="cm">// Légère dégradation</span>
+        <span class="kw">case</span> .serious:  <span class="kw">return</span> <span class="nm">1.45</span>  <span class="cm">// GPU throttle ~30%</span>
+        <span class="kw">case</span> .critical: <span class="kw">return</span> <span class="nm">2.0</span>   <span class="cm">// Basculer massivement vers ANE</span>
+        <span class="kw">@unknown default</span>: <span class="kw">return</span> <span class="nm">1.0</span>
+        }
+    }
+
+    <span class="cm">// ── Niveau 2 : Mesure de dérive temporelle (proxy indirect) ───</span>
+    <span class="cm">// Si les 5 dernières mesures GPU montrent une dégradation croissante,</span>
+    <span class="cm">// inférer un throttling même si ProcessInfo n'a pas encore changé d'état</span>
+
+    <span class="kw">private var</span> gpuHistory: [<span class="ty">Double</span>] = []
+    <span class="kw">private let</span> historySize = <span class="nm">5</span>
+
+    <span class="kw">func</span> <span class="fn">recordGPULatency</span>(_ ms: <span class="ty">Double</span>) {
+        gpuHistory.<span class="fn">append</span>(ms)
+        <span class="kw">if</span> gpuHistory.count > historySize {
+            gpuHistory.<span class="fn">removeFirst</span>()
+        }
+    }
+
+    <span class="cm">/// True si la tendance des 5 dernières mesures est à la hausse > 10%</span>
+    <span class="kw">var</span> isGPUDegrading: <span class="ty">Bool</span> {
+        <span class="kw">guard</span> gpuHistory.count == historySize <span class="kw">else</span> { <span class="kw">return false</span> }
+        <span class="kw">let</span> baseline = gpuHistory.<span class="fn">prefix</span>(<span class="nm">2</span>).<span class="fn">reduce</span>(<span class="nm">0</span>, +) / <span class="nm">2.0</span>
+        <span class="kw">let</span> recent   = gpuHistory.<span class="fn">suffix</span>(<span class="nm">2</span>).<span class="fn">reduce</span>(<span class="nm">0</span>, +) / <span class="nm">2.0</span>
+        <span class="kw">return</span> recent > baseline * <span class="nm">1.10</span>
+    }
+
+    <span class="cm">// ── Notifications ──────────────────────────────────────────────</span>
+    <span class="kw">func</span> <span class="fn">startMonitoring</span>(onChange: <span class="kw">@escaping</span> () -> <span class="ty">Void</span>) {
+        thermalObserver = <span class="ty">NotificationCenter</span>.default.<span class="fn">addObserver</span>(
+            forName: <span class="ty">ProcessInfo</span>.thermalStateDidChangeNotification,
+            object: <span class="kw">nil</span>,
+            queue: .<span class="fn">main</span>
+        ) { _ <span class="kw">in</span> onChange() }
+    }
+
+    <span class="kw">deinit</span> {
+        <span class="kw">if let</span> obs = thermalObserver {
+            <span class="ty">NotificationCenter</span>.default.<span class="fn">removeObserver</span>(obs)
+        }
+    }
+}</pre>
+  </div>
+
+  <div class="success">
+    <strong>Alternative avancée (macOS seulement, non-appstore) :</strong> utiliser <code>powermetrics</code> via un Process() avec les flags <code>--sampler gpu_power,ane_power</code>. Requiert sudo mais donne les vraies puissances. Viable pour un outil de benchmark — pas pour production.
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-label">STRATÉGIE RECOMMANDÉE</div>
+      <div class="timeline" style="margin-top:12px">
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-title">thermalState == .nominal</div>
+          <div class="timeline-desc">Routing calibré, overlap actif. Pleine performance hybride.</div>
+        </div>
+        <div class="timeline-item">
+          <div class="timeline-dot"></div>
+          <div class="timeline-title">thermalState == .fair</div>
+          <div class="timeline-desc">Réduire le parallélisme. Laisser ANE prendre plus de couches.</div>
+        </div>
+        <div class="timeline-item" style="margin-bottom:0">
+          <div class="timeline-dot"></div>
+          <div class="timeline-title">thermalState ≥ .serious</div>
+          <div class="timeline-desc">Basculer vers mode ANE-first. Recalibrer le dispatcher toutes les 30s.</div>
+        </div>
+      </div>
+    </div>
+    <div class="card warn-card">
+      <div class="card-label">NE PAS FAIRE</div>
+      <p style="margin:0; font-size:11px; line-height:1.8; color:var(--text)">
+        • Utiliser <code>IOServiceGetMatchingService</code> pour lire SMC — fragile, non documenté, peut générer <code>KERN_PROTECTION_FAILURE</code> sur macOS 14.4+<br><br>
+        • Récalibrer le dispatcher plus souvent que toutes les 5 secondes — les transitions thermiques sont lentes et la recalibration coûte ~50ms<br><br>
+        • Ignorer <code>isGPUDegrading</code> — le signal ProcessInfo a ~1s de latence, la dérive de latence détecte le throttle plus tôt
+      </p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════ SECTION 6 — BENCHMARK ══════════════════════ -->
+<section class="section" id="sec-6">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">06</span>
+    <h2>Benchmark Harness — Mesurer correctement</h2>
+  </div>
+
+  <p>Les benchmarks mal conduits sont la source principale de désinformation sur ANE vs GPU. Voici les règles strictes pour des mesures valides.</p>
+
+  <div class="grid-2">
+    <div class="card danger-card">
+      <div class="card-label">ERREURS CLASSIQUES À ÉVITER</div>
+      <p style="margin:0; font-size:11px; line-height:1.9; color:var(--text)">
+        ① Mesurer sans warm-up (JIT MLX, compilation CoreML)<br>
+        ② Inclure le chargement des poids dans la mesure<br>
+        ③ Ne tester qu'une seule longueur de séquence<br>
+        ④ Comparer sur M3 Ultra branché seulement<br>
+        ⑤ Utiliser <code>Date()</code> au lieu de <code>mach_absolute_time()</code><br>
+        ⑥ Ne pas vérifier que CoreML utilise vraiment l'ANE<br>
+        ⑦ Comparer batch=1 GPU vs batch=8 ANE
+      </p>
+    </div>
+    <div class="card">
+      <div class="card-label">MÉTHODE CORRECTE</div>
+      <p style="margin:0; font-size:11px; line-height:1.9; color:var(--text)">
+        ① 20 runs warm-up, puis 100+ runs mesurés<br>
+        ② Mesurer uniquement forward pass, poids déjà en mémoire<br>
+        ③ Tester seq ∈ {32, 64, 128, 256, 512}<br>
+        ④ Tester sur au moins 2 appareils différents<br>
+        ⑤ Utiliser <code>clock_gettime(CLOCK_MONOTONIC)</code><br>
+        ⑥ Vérifier ANE via Instruments → Core ML Performance<br>
+        ⑦ Même batch size partout, reporter median + p95
+      </p>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SWIFT</span>
+      <span class="code-file">Sources/Benchmark/BenchmarkRunner.swift</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="kw">import</span> Foundation
+
+<span class="kw">struct</span> <span class="ty">BenchmarkResult</span> {
+    <span class="kw">let</span> label: <span class="ty">String</span>
+    <span class="kw">let</span> median_ms: <span class="ty">Double</span>
+    <span class="kw">let</span> p95_ms: <span class="ty">Double</span>
+    <span class="kw">let</span> p99_ms: <span class="ty">Double</span>
+    <span class="kw">let</span> stddev_ms: <span class="ty">Double</span>
+    <span class="kw">let</span> seqLen: <span class="ty">Int</span>
+    <span class="kw">let</span> device: <span class="ty">String</span>  <span class="cm">// "M3 Ultra" etc.</span>
+}
+
+<span class="kw">final class</span> <span class="fn">BenchmarkRunner</span> {
+
+    <span class="cm">/// Clock haute résolution — éviter Date() qui a ~1ms de résolution</span>
+    <span class="kw">private func</span> <span class="fn">now_ns</span>() -> <span class="ty">UInt64</span> {
+        <span class="kw">var</span> ts = timespec()
+        clock_gettime(<span class="ty">CLOCK_MONOTONIC_RAW</span>, &ts)
+        <span class="kw">return</span> <span class="ty">UInt64</span>(ts.tv_sec) * <span class="nm">1_000_000_000</span> + <span class="ty">UInt64</span>(ts.tv_nsec)
+    }
+
+    <span class="cm">/// Run benchmark avec warm-up correct</span>
+    <span class="kw">func</span> <span class="fn">run</span>(
+        label: <span class="ty">String</span>,
+        seqLen: <span class="ty">Int</span>,
+        warmup: <span class="ty">Int</span> = <span class="nm">20</span>,
+        iters: <span class="ty">Int</span> = <span class="nm">100</span>,
+        block: () <span class="kw">throws</span> -> <span class="ty">Void</span>
+    ) <span class="kw">throws</span> -> <span class="ty">BenchmarkResult</span> {
+
+        <span class="cm">// Phase warm-up — permet : JIT compilation MLX,</span>
+        <span class="cm">// pré-chargement poids CoreML sur ANE, cache Metal shaders</span>
+        <span class="kw">for</span> _ <span class="kw">in</span> <span class="nm">0</span>..&lt;warmup { <span class="kw">try</span> block() }
+
+        <span class="cm">// GC + flush avant mesure</span>
+        <span class="ty">MLX</span>.<span class="fn">synchronize</span>()
+
+        <span class="kw">var</span> timings: [<span class="ty">Double</span>] = []
+        timings.<span class="fn">reserveCapacity</span>(iters)
+
+        <span class="kw">for</span> _ <span class="kw">in</span> <span class="nm">0</span>..&lt;iters {
+            <span class="kw">let</span> t0 = <span class="fn">now_ns</span>()
+            <span class="kw">try</span> block()
+            <span class="ty">MLX</span>.<span class="fn">synchronize</span>()  <span class="cm">// CRUCIAL : attendre fin GPU avant timer stop</span>
+            <span class="kw">let</span> dt = <span class="ty">Double</span>(<span class="fn">now_ns</span>() - t0) / <span class="nm">1_000_000.0</span>
+            timings.<span class="fn">append</span>(dt)
+        }
+
+        timings.<span class="fn">sort</span>()
+        <span class="kw">let</span> median = timings[iters / <span class="nm">2</span>]
+        <span class="kw">let</span> p95    = timings[<span class="ty">Int</span>(<span class="ty">Double</span>(iters) * <span class="nm">0.95</span>)]
+        <span class="kw">let</span> p99    = timings[<span class="ty">Int</span>(<span class="ty">Double</span>(iters) * <span class="nm">0.99</span>)]
+        <span class="kw">let</span> mean   = timings.<span class="fn">reduce</span>(<span class="nm">0</span>, +) / <span class="ty">Double</span>(iters)
+        <span class="kw">let</span> variance = timings.<span class="fn">map</span> { ($0 - mean) * ($0 - mean) }.<span class="fn">reduce</span>(<span class="nm">0</span>, +) / <span class="ty">Double</span>(iters)
+        <span class="kw">let</span> stddev = variance.<span class="fn">squareRoot</span>()
+
+        <span class="kw">return</span> <span class="ty">BenchmarkResult</span>(
+            label: label,
+            median_ms: median,
+            p95_ms: p95,
+            p99_ms: p99,
+            stddev_ms: stddev,
+            seqLen: seqLen,
+            device: <span class="ty">ProcessInfo</span>.processInfo.machineHardwareName
+        )
+    }
+
+    <span class="cm">/// Export CSV pour analyse externe</span>
+    <span class="kw">func</span> <span class="fn">exportCSV</span>(_ results: [<span class="ty">BenchmarkResult</span>], to url: <span class="ty">URL</span>) <span class="kw">throws</span> {
+        <span class="kw">var</span> csv = <span class="st">"label,seq_len,median_ms,p95_ms,p99_ms,stddev_ms,device\n"</span>
+        <span class="kw">for</span> r <span class="kw">in</span> results {
+            csv += <span class="st">"\(r.label),\(r.seqLen),\(r.median_ms),\(r.p95_ms),\(r.p99_ms),\(r.stddev_ms),\(r.device)\n"</span>
+        }
+        <span class="kw">try</span> csv.<span class="fn">write</span>(to: url, atomically: <span class="kw">true</span>, encoding: .<span class="fn">utf8</span>)
+    }
+}
+
+<span class="kw">extension</span> <span class="ty">ProcessInfo</span> {
+    <span class="kw">var</span> machineHardwareName: <span class="ty">String</span> {
+        <span class="kw">var</span> size: <span class="ty">Int</span> = <span class="nm">0</span>
+        sysctlbyname(<span class="st">"hw.model"</span>, <span class="kw">nil</span>, &size, <span class="kw">nil</span>, <span class="nm">0</span>)
+        <span class="kw">var</span> machine = [CChar](repeating: <span class="nm">0</span>, count: size)
+        sysctlbyname(<span class="st">"hw.model"</span>, &machine, &size, <span class="kw">nil</span>, <span class="nm">0</span>)
+        <span class="kw">return</span> <span class="ty">String</span>(cString: machine)
+    }
+}</pre>
+  </div>
+
+  <h3>Vérifier que l'ANE est effectivement utilisé</h3>
+  <div class="code-block">
+    <div class="code-header">
+      <span class="code-lang">SHELL</span>
+      <span class="code-file">Instruments CLI — vérification ANE</span>
+      <button class="copy-btn" onclick="copyCode(this)">COPIER</button>
+    </div>
+    <pre><span class="cm"># Méthode 1 : powermetrics (requires sudo) — voit ANE power draw</span>
+sudo powermetrics --sampler gpu_power,ane_power -i 500 -n 10
+
+<span class="cm"># Si ANE_power > 0.5W pendant l'inférence → ANE actif</span>
+<span class="cm"># Si ANE_power ≈ 0W → CoreML a fallback sur GPU/CPU</span>
+
+<span class="cm"># Méthode 2 : Instruments trace (GUI)</span>
+<span class="cm"># Xcode → Product → Profile → Core ML Performance template</span>
+<span class="cm"># Chercher "Neural Engine Utilization" dans la timeline</span>
+
+<span class="cm"># Méthode 3 : otool sur le mlmodelc compilé</span>
+otool -l AttentionANE.mlmodelc/model.espresso.net | grep -A5 "segment"
+<span class="cm"># Chercher "anec" (ANE compiled) vs "float16" (GPU fallback)</span></pre>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════ SECTION 7 — CLAUDE CODE ══════════════════════ -->
+<section class="section" id="sec-7">
+<div class="container">
+  <div class="section-header">
+    <span class="section-num">07</span>
+    <h2>Claude Code — Prompts d'implémentation</h2>
+  </div>
+
+  <p>Chaque phase ci-dessous est un <strong>travail autonome pour Claude Code</strong>. L'ordre est important : chaque phase dépend de la précédente. Donner le contexte de la phase précédente dans chaque prompt.</p>
+
+  <h3>Phase 1 — Setup + foundation</h3>
+  <div class="cc-prompt">
+    <div class="cc-prompt-text">
+      Create a Swift Package called <em>HybridDispatch</em> targeting macOS 14+. Add <em>mlx-swift 0.18+</em> as dependency. Create <em>MLXEngine.swift</em> with a class wrapping MLX-Swift for GPU operations: FFN forward pass using GEGLU activation (w1/w2/w3 weights), LayerNorm, QKV projection, and a method to wrap an existing MTLBuffer as MLXArray without copy using the unified memory pointer. Add proper error types. Create <em>ANEEngine.swift</em> wrapping CoreML with <em>computeUnits = .cpuAndNeuralEngine</em>, a synchronous and async attention forward method taking MLMultiArray query/key/value and returning output. Include compilation from .mlpackage to .mlmodelc if needed.
+    </div>
+  </div>
+
+  <h3>Phase 2 — SharedBuffer</h3>
+  <div class="cc-prompt">
+    <div class="cc-prompt-text">
+      In the HybridDispatch package, create <em>SharedBuffer.swift</em>. This class manages a MTLBuffer with <em>.storageModeShared</em> that can be read by both Metal (GPU) and CoreML (ANE) without memory copy, leveraging Apple Silicon unified memory. It must: (1) check <em>device.hasUnifiedMemory</em> and throw if false, (2) allocate with 256-byte alignment required by Metal compute shaders, (3) expose a <em>coreMLView()</em> method returning an MLMultiArray backed by the buffer pointer with correct row-major strides, using <em>MLMultiArray(dataPointer:shape:dataType:strides:deallocator:)</em> with nil deallocator since MTLBuffer owns the memory, (4) expose a <em>waitForGPU()</em> fence method. Also create <em>BufferPool.swift</em> with a ping-pong pool of 2 SharedBuffers for double-buffering in the pipeline overlap pattern.
+    </div>
+  </div>
+
+  <h3>Phase 3 — Dispatcher + calibration</h3>
+  <div class="cc-prompt">
+    <div class="cc-prompt-text">
+      Create <em>Dispatcher.swift</em> in HybridDispatch. The dispatcher routes each transformer layer operation (OpType enum: qkvProjection, scaledDotProductAttention, ffn, layerNorm, lmHead, embedding) to either GPU or ANE. Routing logic: static defaults (attention softmax always GPU, ffn always GPU, qkvProjection default ANE, layerNorm default ANE), overridden after calibration by measured latencies stored in LayerProfile structs. The route() method computes: effectiveANECost = measuredANE_ns + transferCost_ns, then compares to measuredGPU_ns * thermalThrottleFactor (from ThermalMonitor). Create <em>ThermalMonitor.swift</em> using <em>ProcessInfo.thermalState</em> returning a gpuThrottleFactor (1.0 nominal, 1.15 fair, 1.45 serious, 2.0 critical), plus a latency drift detector that flags GPU degradation from the last 5 measurements before ProcessInfo updates.
+    </div>
+  </div>
+
+  <h3>Phase 4 — Pipeline overlap</h3>
+  <div class="cc-prompt">
+    <div class="cc-prompt-text">
+      Implement the pipeline overlap pattern in <em>TransformerBlock.swift</em>. The transformerBlockOverlap async function must: (1) compute LayerNorm and QKV projection on GPU synchronously, (2) copy QKV to SharedBuffer, (3) launch ANE attention asynchronously with <em>async let</em>, (4) while ANE runs, use GPU to compute QKV projection for the NEXT block (prefetch) using optionally provided nextWeights, (5) await the ANE result, (6) continue with output projection and FFN on GPU, (7) return residual output. Add a flag in Dispatcher to enable/disable overlap based on whether measured t_ANE > t_GPU_QKV_prefetch * 1.1 (only worth it if ANE takes longer than the GPU prefetch work). Use the BufferPool for allocation-free ping-pong.
+    </div>
+  </div>
+
+  <h3>Phase 5 — Benchmark harness</h3>
+  <div class="cc-prompt">
+    <div class="cc-prompt-text">
+      Create <em>BenchmarkRunner.swift</em> using <em>clock_gettime(CLOCK_MONOTONIC_RAW)</em> for nanosecond timing. Implement a run() method that: warm-ups for 20 iterations (to trigger MLX JIT compilation and CoreML ANE weight loading), then measures 100 iterations, calls <em>MLX.synchronize()</em> after each iteration before stopping the timer, and returns median/p95/p99/stddev. Create a CLI entry point that benchmarks 3 configurations (GPU-only, ANE-only, Hybrid) across seq lengths [32, 64, 128, 256, 512] with batch=1, exports to CSV, and prints a human-readable table. Include a system info header: chip model via <em>sysctlbyname("hw.model")</em>, thermal state, unified memory size. Add a powermetrics hint comment explaining how to verify ANE utilization externally.
+    </div>
+  </div>
+
+  <h3>Phase 6 — Export CoreML model</h3>
+  <div class="cc-prompt">
+    <div class="cc-prompt-text">
+      Write a Python script <em>export_attention_coreml.py</em> using <em>coremltools 7+</em> to export the attention block of jina-embeddings-v3 (768d, 12 heads, 64 d_head) to CoreML format. Requirements: (1) use <em>ct.convert()</em> from a traced PyTorch module, (2) set <em>compute_units=ct.ComputeUnit.CPU_AND_NE</em>, (3) output shape must be [1, seq, 768] with seq as flexible dimension from 1 to 512 using <em>RangeDim</em>, (4) input/output dtype float16, (5) split into 2 .mlpackage files (layers 0-5 and layers 6-11) to stay under the ANE 16K ops limit, (6) after export, verify with <em>ct.models.utils.load_spec()</em> that the model contains "neuralengine" in the spec, (7) print estimated ANE memory footprint. Include a note about checking actual ANE dispatch with powermetrics.
+    </div>
+  </div>
+
+  <div class="warning" style="margin-top:24px">
+    <strong>Ordre de vérification avant phase suivante :</strong> après chaque phase, demander à Claude Code de lancer <code>swift build</code> et résoudre les erreurs de compilation avant de continuer. L'architecture est inter-dépendante — une interface mal définie en phase 1 cascade sur toutes les suivantes.
+  </div>
+
+  <h3>Prompt de debug thermal (bonus)</h3>
+  <div class="cc-prompt">
+    <div class="cc-prompt-text">
+      The ThermalMonitor currently uses ProcessInfo.thermalState which has ~1 second latency. Add a secondary signal: measure the last 5 forward pass durations for the GPU and fit a linear regression. If the slope is positive and >5% increase per inference, flag isGPUDegrading = true and reduce the dispatcher's marginFactor from 1.05 to 0.95 (aggressively shift to ANE). This should be computed in O(1) using Welford's online algorithm for the slope estimate, not by storing all timings. Reset the slope estimate when thermalState changes to nominal.
+    </div>
+  </div>
+</div>
+</section>
+
+<footer>
+  <div class="container" style="display:flex; justify-content:space-between; width:100%">
+    <span>ANE ⊕ MLX HYBRID DISPATCH · SPEC v0.1.0</span>
+    <span>jina-v3 768d · Apple Silicon M2+ · Swift 5.9</span>
+  </div>
+</footer>
+
+<script>
+  const tabs = document.querySelectorAll('.nav-tab');
+  const sections = document.querySelectorAll('.section');
+
+  function showTab(i) {
+    tabs.forEach((t, j) => t.classList.toggle('active', j === i));
+    sections.forEach((s, j) => s.classList.toggle('active', j === i));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function copyCode(btn) {
+    const pre = btn.closest('.code-block').querySelector('pre');
+    const text = pre.innerText || pre.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'COPIÉ ✓';
+      btn.style.color = 'var(--ane)';
+      btn.style.borderColor = 'var(--ane)';
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.style.color = '';
+        btn.style.borderColor = '';
+      }, 1500);
+    });
+  }
+
+  // Animate metric bars on section change
+  function animateBars() {
+    document.querySelectorAll('.metric-bar').forEach(bar => {
+      const w = bar.dataset.width;
+      if (w) { bar.style.width = '0%'; setTimeout(() => bar.style.width = w, 50); }
+    });
+  }
+
+  // Keyboard nav
+  document.addEventListener('keydown', e => {
+    const active = [...tabs].findIndex(t => t.classList.contains('active'));
+    if (e.key === 'ArrowRight' && active < tabs.length - 1) showTab(active + 1);
+    if (e.key === 'ArrowLeft'  && active > 0)               showTab(active - 1);
+  });
+</script>
+</body>
+</html>

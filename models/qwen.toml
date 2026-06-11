@@ -1,0 +1,23 @@
+[model]
+name = "Qwen2.5-0.5B"
+family = "qwen"
+hf_id = "Qwen/Qwen2.5-0.5B"
+params = "500M"
+
+[architecture]
+n_layers = 24
+dim = 896
+hidden_dim = 4864
+n_heads = 14
+n_kv_heads = 2
+head_dim = 64
+vocab_size = 151936
+max_seq_len = 4096
+norm_eps = 1e-6
+rope_theta = 1000000.0
+
+[recommended]
+lora_rank = 16
+seq_len = 512
+batch_size = 1
+learning_rate = 1e-4

@@ -1,0 +1,14 @@
+[package]
+name = "ane-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ANEForge training engine - LoRA, forward/backward, optimizer"
+
+[dependencies]
+ane-sys.workspace = true
+half.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true

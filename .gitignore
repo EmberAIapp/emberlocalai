@@ -1,0 +1,41 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+build/
+dist/
+*.so
+
+# Swift / app build
+app/ANEForge/.build/
+*.xcodeproj/xcuserdata/
+.swiftpm/
+
+# Models & data (never commit weights or user data — this is the whole privacy point)
+*.safetensors
+*.gguf
+*.mlpackage/
+*.mlmodelc/
+/models_cache/
+
+# Vendored reference (cloned separately)
+/ane-ref/
+
+# Separate project that happens to live in this folder — not part of ANEForge
+/1.LocalAITune/
+
+# OS
+.DS_Store
+*.swp
+
+# Local scratch
+/tmp/
+*.log
