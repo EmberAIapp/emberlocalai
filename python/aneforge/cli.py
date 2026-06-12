@@ -187,6 +187,7 @@ if HAS_RICH:
 
         # Check if it's a personal model
         adapter_path = None
+        memory_path = None
         if (MODELS_DIR / name).exists():
             pm = PersonalModel(name)
             model_name = pm._config["base_model"]
@@ -194,6 +195,7 @@ if HAS_RICH:
             versions = sorted(pm.versions_dir.iterdir()) if pm.versions_dir.exists() else []
             if versions:
                 adapter_path = str(versions[-1])
+            memory_path = str(MODELS_DIR / name / "memory.db")
             console.print(f"Loading personal model [cyan]{name}[/cyan] (base: {model_name}, v{pm._config['version']})")
         else:
             model_name = resolve_model_name(name)
@@ -205,6 +207,7 @@ if HAS_RICH:
             temperature=temperature,
             max_tokens=max_tokens,
             system_prompt=system,
+            memory_path=memory_path,
         )
 
     @app.command()
@@ -219,21 +222,93 @@ if HAS_RICH:
         from aneforge.model import resolve_model_name
 
         adapter_path = None
+        memory_path = None
         if (MODELS_DIR / name).exists():
             pm = PersonalModel(name)
             model_name = pm._config["base_model"]
             versions = sorted(pm.versions_dir.iterdir()) if pm.versions_dir.exists() else []
             if versions:
                 adapter_path = str(versions[-1])
+            memory_path = str(MODELS_DIR / name / "memory.db")
         else:
             model_name = resolve_model_name(name)
 
-        cs = ChatSession(model_name, adapter_path=adapter_path, max_tokens=max_tokens)
-        tokens = cs._generate_native(cs._encode(prompt))
+        cs = ChatSession(model_name, adapter_path=adapter_path, max_tokens=max_tokens,
+                         memory_path=memory_path)
+        # Inject any known facts + learn from this prompt (same path as interactive chat)
+        cs.last_learned = cs.memory.extract_and_store(prompt) if cs.memory else []
+        context = cs._build_context(prompt)
+        tokens = cs._generate_native(cs._encode(context))
         # Collapse to a single clean line and emit behind a marker so the GUI can
         # capture the answer reliably regardless of any other stdout noise.
         answer = " ".join(cs._decode(tokens).split())
         print(f"===ANSWER===\t{answer}")
+
+    @app.command()
+    def memory(
+        name: str = typer.Argument(..., help="Personal model name"),
+        json_out: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
+    ):
+        """Show everything Ember knows about you (editable, local)."""
+        from aneforge.memory import store_for_model
+        from aneforge.personal import MODELS_DIR
+        if not (MODELS_DIR / name).exists():
+            console.print(f"[red]No personal model '{name}'.[/red]")
+            return
+        facts = store_for_model(name).all()
+        if json_out:
+            import json as _json
+            print(_json.dumps([{"id": f.id, "kind": f.kind, "text": f.text,
+                                "source": f.source} for f in facts]))
+            return
+        if not facts:
+            console.print(f"Ember doesn't know anything about you yet. Chat with it, "
+                          f"or: [cyan]aneforge remember {name} \"...\"[/cyan]")
+            return
+        table = Table(title=f"What Ember knows about you ({name})")
+        table.add_column("ID", style="dim"); table.add_column("Kind", style="cyan")
+        table.add_column("Fact"); table.add_column("Source", style="dim")
+        for f in facts:
+            table.add_row(str(f.id), f.kind, f.text, f.source)
+        console.print(table)
+        console.print(f"[dim]Forget one: aneforge forget {name} <id>  ·  "
+                      f"Forget all: aneforge forget {name} --all[/dim]")
+
+    @app.command()
+    def remember(
+        name: str = typer.Argument(..., help="Personal model name"),
+        fact: str = typer.Argument(..., help="A fact to remember, e.g. \"My dog is named Pixel\""),
+    ):
+        """Teach Ember a fact directly (stored in editable memory)."""
+        from aneforge.memory import store_for_model
+        from aneforge.personal import MODELS_DIR
+        if not (MODELS_DIR / name).exists():
+            console.print(f"[red]No personal model '{name}'.[/red]")
+            return
+        f = store_for_model(name).add(fact, kind="misc", source="explicit")
+        console.print(f"[green]Remembered:[/green] {f.text}" if f else "[yellow]Already known.[/yellow]")
+
+    @app.command()
+    def forget(
+        name: str = typer.Argument(..., help="Personal model name"),
+        fact_id: Optional[int] = typer.Argument(None, help="Fact ID to forget"),
+        all_facts: bool = typer.Option(False, "--all", help="Forget everything"),
+    ):
+        """Make Ember forget a fact (or everything)."""
+        from aneforge.memory import store_for_model
+        from aneforge.personal import MODELS_DIR
+        if not (MODELS_DIR / name).exists():
+            console.print(f"[red]No personal model '{name}'.[/red]")
+            return
+        store = store_for_model(name)
+        if all_facts:
+            n = store.clear()
+            console.print(f"[green]Forgot all {n} facts.[/green]")
+        elif fact_id is not None:
+            ok = store.delete(fact_id)
+            console.print(f"[green]Forgot fact {fact_id}.[/green]" if ok else f"[yellow]No fact {fact_id}.[/yellow]")
+        else:
+            console.print("Specify a fact ID or --all. See: [cyan]aneforge memory " + name + "[/cyan]")
 
     @app.command()
     def models(

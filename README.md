@@ -21,12 +21,13 @@ aneforge chat   moi                       # discuter
 
 | Capacité | Preuve |
 |---|---|
-| **Mémorisation personnelle** | apprend 5 faits, **les restitue après fermeture/réouverture** (5/5) |
+| **Mémoire personnelle éditable** | Ember apprend vos faits, vous les **voyez, corrigez, supprimez** (`aneforge memory / remember / forget`) ; injectés par récupération — marche sur tout modèle |
+| Mémorisation par fine-tuning | apprend votre *style* via LoRA, restitué après fermeture/réouverture (5/5) |
 | Entraînement local | LoRA 7 modules, convergence réelle, BLAS/Accelerate (~1 s/pas sur 135M) |
 | Inférence réelle | génération greedy + contrôle de répétition |
-| CLI complète | `create / learn / ask / chat` de bout en bout |
+| CLI complète | `create / learn / ask / chat / memory` de bout en bout |
 | App macOS native | SwiftUI, glisser-déposer vos données + chat |
-| **Inférence sur le Neural Engine** | modèle complet exécuté sur l'ANE, sortie validée — voir [`crates/ane-sys/verify/`](crates/ane-sys/verify/) |
+| **Exécution Core ML, Neural Engine activé** | modèle complet exécuté via Core ML (`computeUnits=All`, partition auto vers l'ANE), sortie validée vs référence — voir [`crates/ane-sys/verify/`](crates/ane-sys/verify/) |
 
 Détails honnêtes (prouvé vs à venir) : [STATUS.md](STATUS.md).
 
@@ -61,12 +62,27 @@ Prérequis : macOS 14+, Apple Silicon (M1–M5), Python 3.10+, Xcode CLT.
 open app/ANEForge/ANEForge.app
 ```
 
-## Inférence sur le Neural Engine
+## Mémoire personnelle (ce qui rend "il me connaît" réel)
 
-L'export d'un modèle vers l'ANE et son exécution sont documentés et reproductibles
-dans [`crates/ane-sys/verify/`](crates/ane-sys/verify/README.md). L'inférence
-utilise l'API **publique** CoreML (aucune API privée) ; CoreML répartit
-automatiquement le calcul sur le Neural Engine.
+Les *faits* ("mon chien s'appelle Pixel") vivent dans une mémoire locale
+**inspectable, éditable, supprimable** — pas dans le réseau. Le LoRA apprend
+votre *voix* ; la mémoire retient vos *faits*, et les réinjecte par récupération
+dans le contexte. Résultat : Ember sait, et **vous gardez le contrôle**.
+
+```bash
+aneforge remember moi "Mon chien s'appelle Pixel"
+aneforge memory   moi          # voir tout ce qu'Ember sait de vous
+aneforge forget   moi 3        # oublier un fait  (ou --all)
+```
+
+## Exécution sur le Neural Engine
+
+L'export d'un modèle et son exécution sont documentés et reproductibles dans
+[`crates/ane-sys/verify/`](crates/ane-sys/verify/README.md). L'inférence utilise
+l'API **publique** Core ML (aucune API privée) avec `computeUnits = All` : Core ML
+est un *scheduler* qui partitionne le graphe sur CPU/GPU/Neural Engine. La
+formulation honnête est donc *"exécution Core ML, Neural Engine activé"* — la
+preuve de dispatch ANE op-par-op exige un Core ML Performance Report (Xcode).
 
 ## Pourquoi l'ANE
 

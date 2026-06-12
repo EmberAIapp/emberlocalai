@@ -25,6 +25,7 @@ class ChatSession:
         temperature: float = 0.7,
         max_tokens: int = 256,
         system_prompt: str = "",
+        memory_path: Optional[str] = None,
     ):
         self.model_name = model_name
         self.adapter_path = adapter_path
@@ -35,6 +36,13 @@ class ChatSession:
         self._tokenizer = None
         self._native = None
         self._vocab_size = 0
+
+        # Editable fact memory (the user's facts live here, NOT in the LoRA).
+        self.memory = None
+        self.last_learned: list = []
+        if memory_path:
+            from aneforge.memory import FactStore
+            self.memory = FactStore(memory_path)
 
         self._load_model()
 
@@ -102,7 +110,12 @@ class ChatSession:
 
     def generate(self, prompt: str) -> str:
         """Generate a response to the given prompt."""
-        # Build context with history
+        # Learn facts from the message (explicit + heuristic) into editable memory.
+        self.last_learned = []
+        if self.memory is not None:
+            self.last_learned = self.memory.extract_and_store(prompt)
+
+        # Build context with history + retrieved memory
         context = self._build_context(prompt)
         input_tokens = self._encode(context)
 
@@ -117,8 +130,15 @@ class ChatSession:
         return response
 
     def _build_context(self, prompt: str) -> str:
-        """Build context string from history + new prompt."""
+        """Build context string from memory + history + new prompt."""
         parts = []
+
+        # Inject relevant facts so the model "knows" the user — retrieval, not LoRA.
+        if self.memory is not None:
+            relevant = self.memory.relevant(prompt)
+            if relevant:
+                facts = "\n".join(f"- {f.text}" for f in relevant)
+                parts.append(f"<|system|>\nThings you know about the user:\n{facts}")
 
         if self.system_prompt:
             parts.append(f"<|system|>\n{self.system_prompt}")
@@ -291,6 +311,13 @@ class ChatSession:
 
             response = self.generate(user_input)
             print(response)
+            # Surface what was just learned, so the user SEES the memory working.
+            if self.last_learned:
+                learned = "; ".join(f.text for f in self.last_learned)
+                if has_rich:
+                    console.print(f"[dim]🧠 appris : {learned}[/dim]")
+                else:
+                    print(f"[appris] {learned}")
             print()
 
 
@@ -300,6 +327,7 @@ def start_chat(
     temperature: float = 0.7,
     max_tokens: int = 256,
     system_prompt: str = "",
+    memory_path: Optional[str] = None,
 ):
     """Start an interactive chat session."""
     session = ChatSession(
@@ -308,5 +336,6 @@ def start_chat(
         temperature=temperature,
         max_tokens=max_tokens,
         system_prompt=system_prompt,
+        memory_path=memory_path,
     )
     session.interactive()

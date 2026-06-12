@@ -14,11 +14,12 @@ sur l'Apple Neural Engine **vérifiée sur silicium M5**.
 |---|---|
 | Entraînement qui converge | loss 10.8 (vide) → 4.7 (vrais poids) → descend ; LoRA 7 modules |
 | Inférence réelle | forward pass + greedy + anti-répétition (pas de bruit aléatoire) |
-| **Mémorisation personnelle** | 5/5 faits restitués **après save → fermeture → reload** |
+| **Mémoire personnelle éditable** | faits appris → injectés par récupération (`aneforge memory/remember/forget`), inspectable & supprimable, marche sur tout modèle |
+| Mémorisation par fine-tuning | 5/5 faits restitués **après save → fermeture → reload** (LoRA) |
 | Vitesse CPU | BLAS/Accelerate : 37 s → 1 s par pas (×36) |
 | Produit CLI | `aneforge create / learn / ask / chat` de bout en bout |
 | App macOS native | SwiftUI, compile et linke ; pont moteur exécuté (récupère le rappel) |
-| **Exécution sur l'ANE** | compile+load+evaluate sur M5, 2048/2048 corrects — voir `crates/ane-sys/verify/` |
+| **Exécution Core ML / Neural Engine activé** | modèle complet via Core ML (`computeUnits=All`, partition auto vers ANE), sortie validée — voir `crates/ane-sys/verify/`. Preuve de dispatch ANE op-par-op = nécessite un Core ML Performance Report (Xcode). |
 
 ## Pas encore fait (ingénierie connue, risque existentiel levé)
 
