@@ -72,3 +72,23 @@ on M5.** Remaining engineering to wire it into training:
   see maderix `m5result.md`; must async-recompile or raise accumulation steps)
 - Manage the ~119-compile-per-process limit (process pool)
 - Validate ANE outputs against the CPU reference engine (we have one that converges)
+
+## Full model on ANE — inference (coreml_run.m + ane_export.py + ane_infer.py)
+
+The entire 30-layer SmolLM2-135M runs on the ANE and predicts the **same next
+token** as a numpy reference (argmax match; FP32 layer logic exact to 2e-5).
+Autoregressive generation produces coherent text:
+
+```
+prompt:      "The capital of France is"
+ANE output:  "The capital of France is a very good, and the"
+```
+
+**Inference needs NO private APIs** — `coreml_run.m` uses the public `MLModel`
+API with `computeUnits = All`, and CoreML auto-partitions the graph onto the
+Neural Engine. Build-time export (`ane_export.py`) needs coremltools (py3.12);
+runtime (`ane_infer.py`) needs neither coremltools nor private APIs.
+
+Private-API path (in-memory descriptor) is reserved for **training** (dynamic
+weight reload) — `ANECCompile` is stricter and rejects the full inference graph,
+which is fine: inference goes through public CoreML.
