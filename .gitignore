@@ -44,3 +44,7 @@ app/ANEForge/.build/
 crates/ane-sys/verify/ane_run
 crates/ane-sys/verify/ane_verify
 crates/ane-sys/verify/ane_matmul
+
+# App bundle artifacts
+app/ANEForge/ANEForge.app/
+app/ANEForge/.build/
