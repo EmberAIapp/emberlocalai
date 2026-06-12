@@ -39,3 +39,8 @@ app/ANEForge/.build/
 # Local scratch
 /tmp/
 *.log
+
+# Compiled ANE executors (build artifacts)
+crates/ane-sys/verify/ane_run
+crates/ane-sys/verify/ane_verify
+crates/ane-sys/verify/ane_matmul

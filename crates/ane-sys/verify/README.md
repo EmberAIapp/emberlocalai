@@ -47,6 +47,21 @@ clang -fobjc-arc -framework Foundation -framework CoreML -framework IOSurface \
     ane_verify.m -o /tmp/ane_verify && /tmp/ane_verify
 ```
 
+## Real linear layer verified (ane_matmul.m + gen_matmul.py)
+
+Beyond the toy `2*x`, a **real channel-mixing matmul** (linear layer 64→48 over 16
+positions, random weights) runs on the ANE and matches the CPU reference:
+
+```
+ANE out      = 0.2542 1.3115 0.5386
+CPU ref      = 0.2545 1.3114 0.5387
+max abs error = 0.0012 (FP16 rounding) | 768/768 within 1e-2
+>>> ANE MATMUL MATCHES CPU <<<
+```
+
+Confirms the core forward/backward primitive executes correctly on ANE, and that
+the flat channel IOSurface layout holds for channel-mixing ops.
+
 ## What this unlocks / what's next
 
 This removes the existential risk: **the ANE runs our compute, no entitlement wall
