@@ -1,0 +1,33 @@
+"""MLX chat backend — fluent local conversation on Apple Silicon.
+
+Proven on M5: Qwen2.5-1.5B-Instruct-4bit → fluent French, grounds injected facts,
+~56 tok/s warm. This is the primary INFERENCE path for chat (the Rust/ANE engine
+stays for personal LoRA training). Loaded once (heavy), reused across turns — hence
+the daemon (see ember_daemon.py); never load per-message.
+"""
+
+from __future__ import annotations
+
+DEFAULT_MODEL = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+
+
+class MLXChat:
+    def __init__(self, model_id: str = DEFAULT_MODEL):
+        from mlx_lm import load
+        self.model_id = model_id
+        self.model, self.tok = load(model_id)
+
+    @staticmethod
+    def available() -> bool:
+        try:
+            import mlx_lm  # noqa: F401
+            return True
+        except Exception:
+            return False
+
+    def chat(self, messages: list[dict], max_tokens: int = 220) -> str:
+        """messages: [{role: system|user|assistant, content: ...}] -> answer text."""
+        from mlx_lm import generate
+        prompt = self.tok.apply_chat_template(messages, add_generation_prompt=True)
+        out = generate(self.model, self.tok, prompt=prompt, max_tokens=max_tokens, verbose=False)
+        return out.strip()

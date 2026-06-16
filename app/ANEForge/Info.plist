@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>ANEForge</string>
+    <string>Ember</string>
     <key>CFBundleDisplayName</key>
-    <string>ANEForge</string>
+    <string>Ember</string>
     <key>CFBundleIdentifier</key>
-    <string>com.aneforge.app</string>
+    <string>app.emberai.desktop</string>
     <key>CFBundleVersion</key>
     <string>0.1.0</string>
     <key>CFBundleShortVersionString</key>
@@ -15,7 +15,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
-    <string>ANEForge</string>
+    <string>Ember</string>
+    <key>CFBundleIconFile</key>
+    <string>Ember</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

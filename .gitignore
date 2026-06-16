@@ -48,3 +48,5 @@ crates/ane-sys/verify/ane_matmul
 # App bundle artifacts
 app/ANEForge/ANEForge.app/
 app/ANEForge/.build/
+
+app/ANEForge/Ember.app/

@@ -169,8 +169,39 @@ fn add_lora(lora: Option<&LoRAModel>, name: &str, x: &[f32], out: &mut [f32], se
     }
 }
 
-/// Apply Rotary Position Embeddings
+/// Apply Rotary Position Embeddings — HuggingFace "rotate_half" convention
+/// (Llama / SmolLM2 / Qwen). Pairs dimension i with i+head_dim/2 (NOT interleaved).
 fn apply_rope(q: &mut [f32], k: &mut [f32], seq_len: usize, n_heads: usize, head_dim: usize, theta: f32) {
+    let dim = n_heads * head_dim;
+    let half = head_dim / 2;
+    for t in 0..seq_len {
+        for h in 0..n_heads {
+            let base = t * dim + h * head_dim;
+            for i in 0..half {
+                let freq = 1.0 / theta.powf((2 * i) as f32 / head_dim as f32);
+                let angle = t as f32 * freq;
+                let cos_a = angle.cos();
+                let sin_a = angle.sin();
+
+                let i0 = base + i;        // first half
+                let i1 = base + i + half; // second half
+
+                let q0 = q[i0];
+                let q1 = q[i1];
+                q[i0] = q0 * cos_a - q1 * sin_a;
+                q[i1] = q1 * cos_a + q0 * sin_a;
+
+                let k0 = k[i0];
+                let k1 = k[i1];
+                k[i0] = k0 * cos_a - k1 * sin_a;
+                k[i1] = k1 * cos_a + k0 * sin_a;
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn _apply_rope_old(q: &mut [f32], k: &mut [f32], seq_len: usize, n_heads: usize, head_dim: usize, theta: f32) {
     let dim = n_heads * head_dim;
     for t in 0..seq_len {
         for h in 0..n_heads {

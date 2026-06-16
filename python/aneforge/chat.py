@@ -53,6 +53,10 @@ class ChatSession:
         info = get_model_info(self.model_name)
         self._vocab_size = info.get("vocab_size", 32000)
 
+        # Instruct models are chat-tuned: use the ChatML template + <|im_end|> stop.
+        self._is_instruct = "instruct" in self.model_name.lower()
+        self._eos_id = 0  # default <|endoftext|>
+
         # Try loading tokenizer
         try:
             from tokenizers import Tokenizer
@@ -61,6 +65,9 @@ class ChatSession:
             hf_id = get_hf_model_id(self.model_name)
             tok_path = hf_hub_download(hf_id, "tokenizer.json")
             self._tokenizer = Tokenizer.from_file(tok_path)
+            if self._is_instruct:
+                im_end = self._tokenizer.token_to_id("<|im_end|>")
+                self._eos_id = im_end if im_end is not None else 2
         except Exception:
             self._tokenizer = None
 
@@ -115,6 +122,20 @@ class ChatSession:
         if self.memory is not None:
             self.last_learned = self.memory.extract_and_store(prompt)
 
+        # Reliable fact recall: if the question matches a stored fact, answer from
+        # the editable memory directly — the source of truth — not the LLM. This
+        # makes "it knows you" rock-solid on any model size.
+        looks_like_question = ("?" in prompt) or any(
+            prompt.lower().lstrip().startswith(w)
+            for w in ("comment", "quel", "quelle", "qui", "où", "ou ", "quand", "what",
+                      "who", "where", "when", "how", "is ", "est-ce"))
+        if self.memory is not None and looks_like_question and not self.last_learned:
+            fact = self.memory.best_match(prompt)
+            if fact is not None:
+                self.history.append({"role": "user", "content": prompt})
+                self.history.append({"role": "assistant", "content": fact.text})
+                return fact.text
+
         # Build context with history + retrieved memory
         context = self._build_context(prompt)
         input_tokens = self._encode(context)
@@ -130,25 +151,36 @@ class ChatSession:
         return response
 
     def _build_context(self, prompt: str) -> str:
-        """Build context string from memory + history + new prompt."""
-        parts = []
-
-        # Inject relevant facts so the model "knows" the user — retrieval, not LoRA.
+        """Build the prompt. Instruct models use the ChatML template they were
+        trained on; base models use a light tag format."""
+        # Assemble the system message (persona + retrieved facts).
+        sys_lines = []
+        if self.system_prompt:
+            sys_lines.append(self.system_prompt)
+        else:
+            sys_lines.append("Tu es Ember, un assistant personnel chaleureux et concis. "
+                             "Réponds dans la langue de l'utilisateur.")
         if self.memory is not None:
             relevant = self.memory.relevant(prompt)
             if relevant:
                 facts = "\n".join(f"- {f.text}" for f in relevant)
-                parts.append(f"<|system|>\nThings you know about the user:\n{facts}")
+                sys_lines.append("Ce que tu sais sur l'utilisateur :\n" + facts)
+        system = "\n\n".join(sys_lines)
 
-        if self.system_prompt:
-            parts.append(f"<|system|>\n{self.system_prompt}")
+        if self._is_instruct:
+            parts = [f"<|im_start|>system\n{system}<|im_end|>"]
+            for msg in self.history[-8:]:
+                role = "assistant" if msg["role"] == "assistant" else "user"
+                parts.append(f"<|im_start|>{role}\n{msg['content']}<|im_end|>")
+            parts.append(f"<|im_start|>user\n{prompt}<|im_end|>")
+            parts.append("<|im_start|>assistant\n")
+            return "\n".join(parts)
 
-        for msg in self.history[-10:]:  # Keep last 10 turns
+        # Base (completion) model fallback
+        parts = [f"<|system|>\n{system}"]
+        for msg in self.history[-8:]:
             parts.append(f"<|{msg['role']}|>\n{msg['content']}")
-
-        parts.append(f"<|user|>\n{prompt}")
-        parts.append("<|assistant|>\n")
-
+        parts.append(f"<|user|>\n{prompt}\n<|assistant|>\n")
         return "\n".join(parts)
 
     def _generate_tokens(self, input_tokens: list[int]) -> list[int]:
@@ -166,11 +198,8 @@ class ChatSession:
         """Generate using the native Rust engine (real forward pass)."""
         if self._native is None:
             raise RuntimeError("native engine not loaded")
-        eos = None
-        if self._tokenizer is not None:
-            # Common EOS id for these models; None-safe
-            eos = 0
-        max_new = min(self.max_tokens, 64)
+        eos = self._eos_id if self._tokenizer is not None else None
+        max_new = min(self.max_tokens, 96)
         return self._native.generate(
             [int(t) for t in input_tokens],
             max_new_tokens=max_new,

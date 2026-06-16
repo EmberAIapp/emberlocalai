@@ -153,9 +153,12 @@ if HAS_RICH:
         name: str = typer.Argument(..., help="Name for your personal model"),
         base: str = typer.Option("smollm2-135m", "--base", "-b", help="Base model"),
     ):
-        """Create a new personal AI model."""
-        from aneforge.personal import PersonalModel
+        """Create a new personal AI model (idempotent: opens it if it already exists)."""
+        from aneforge.personal import PersonalModel, MODELS_DIR
 
+        if (MODELS_DIR / name).exists():
+            console.print(f"[yellow]Le modèle '{name}' existe déjà — ouverture.[/yellow]")
+            return
         model = PersonalModel.create(name, base=base)
         console.print(f"\n[green]Model '{name}' created![/green]")
         console.print(f"Train it: [cyan]aneforge learn {name} --data your_data.txt[/cyan]")
@@ -201,6 +204,13 @@ if HAS_RICH:
             model_name = resolve_model_name(name)
             console.print(f"Loading model [cyan]{model_name}[/cyan]")
 
+        # Apply per-AI settings (persona / response length) if present
+        s = _load_settings(name)
+        if s.get("persona") and not system:
+            system = s["persona"]
+        if s.get("max_tokens"):
+            max_tokens = s["max_tokens"]
+
         start_chat(
             model_name=model_name,
             adapter_path=adapter_path,
@@ -209,6 +219,15 @@ if HAS_RICH:
             system_prompt=system,
             memory_path=memory_path,
         )
+
+    def _load_settings(name: str) -> dict:
+        import json as _json
+        from aneforge.personal import MODELS_DIR
+        f = MODELS_DIR / name / "settings.json"
+        try:
+            return _json.loads(f.read_text()) if f.exists() else {}
+        except Exception:
+            return {}
 
     @app.command()
     def ask(
@@ -233,16 +252,51 @@ if HAS_RICH:
         else:
             model_name = resolve_model_name(name)
 
-        cs = ChatSession(model_name, adapter_path=adapter_path, max_tokens=max_tokens,
+        s = _load_settings(name)
+        cs = ChatSession(model_name, adapter_path=adapter_path,
+                         max_tokens=s.get("max_tokens", max_tokens),
+                         system_prompt=s.get("persona", ""),
                          memory_path=memory_path)
-        # Inject any known facts + learn from this prompt (same path as interactive chat)
-        cs.last_learned = cs.memory.extract_and_store(prompt) if cs.memory else []
-        context = cs._build_context(prompt)
-        tokens = cs._generate_native(cs._encode(context))
-        # Collapse to a single clean line and emit behind a marker so the GUI can
-        # capture the answer reliably regardless of any other stdout noise.
-        answer = " ".join(cs._decode(tokens).split())
+        # Route through generate() — same path as interactive chat (memory-first
+        # recall + LLM). Emit behind a marker so the GUI captures it reliably.
+        answer = " ".join(cs.generate(prompt).split())
         print(f"===ANSWER===\t{answer}")
+
+    @app.command()
+    def delete(
+        name: str = typer.Argument(..., help="Personal model to delete"),
+    ):
+        """Permanently delete a personal AI (and its memory)."""
+        from aneforge.personal import PersonalModel, MODELS_DIR
+        if not (MODELS_DIR / name).exists():
+            console.print(f"[yellow]Aucune IA '{name}'.[/yellow]")
+            return
+        PersonalModel(name).delete(confirm=True)
+        console.print(f"[green]IA '{name}' supprimée.[/green]")
+
+    @app.command()
+    def settings(
+        name: str = typer.Argument(..., help="Personal model name"),
+        persona: Optional[str] = typer.Option(None, "--persona", help="How the AI should behave (system prompt)"),
+        max_tokens: Optional[int] = typer.Option(None, "--max-tokens", help="Max response length"),
+        show: bool = typer.Option(False, "--show", help="Print current settings as JSON"),
+    ):
+        """Get or set an AI's settings (persona, response length)."""
+        import json as _json
+        from aneforge.personal import MODELS_DIR
+        sdir = MODELS_DIR / name
+        if not sdir.exists():
+            console.print(f"[red]Aucune IA '{name}'.[/red]"); return
+        sfile = sdir / "settings.json"
+        cfg = _json.loads(sfile.read_text()) if sfile.exists() else {}
+        if persona is not None: cfg["persona"] = persona
+        if max_tokens is not None: cfg["max_tokens"] = max_tokens
+        if persona is not None or max_tokens is not None:
+            sfile.write_text(_json.dumps(cfg, indent=2))
+        if show or (persona is None and max_tokens is None):
+            print(_json.dumps(cfg))
+        else:
+            console.print("[green]Réglages enregistrés.[/green]")
 
     @app.command()
     def memory(

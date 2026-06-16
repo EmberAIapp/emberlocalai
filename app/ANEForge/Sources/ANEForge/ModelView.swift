@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The per-model screen: teach it (drop data) on top, chat below.
+/// Per-model screen: teach it (drop data) on top, chat below — all in the Ember theme.
 struct ModelView: View {
     @EnvironmentObject var state: AppState
     @State private var draftPrompt = ""
@@ -10,34 +10,39 @@ struct ModelView: View {
     var body: some View {
         VStack(spacing: 0) {
             teachBar
-            Divider()
+            Divider().overlay(Color.ember2.opacity(0.15))
             chat
             inputBar
         }
+        .background(Color.emberBg)
         .navigationTitle(state.selected?.name ?? "")
     }
 
     // MARK: Teach (drag-and-drop a data file)
 
     private var teachBar: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "tray.and.arrow.down.fill")
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading) {
-                Text("Apprendre de vos données").font(.headline)
+        HStack(spacing: 14) {
+            EmberOrb(size: 22, active: state.isBusy).frame(width: 30, height: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.isBusy ? "Ember apprend…" : "Apprendre de vos données")
+                    .font(.headline).foregroundStyle(.emberInk)
                 Text(state.isBusy
-                     ? (state.trainingLog.last ?? "Apprentissage…")
-                     : "Glissez un fichier .txt ici, ou cliquez pour choisir.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                     ? (state.trainingLog.last ?? "…")
+                     : "Glissez un fichier .txt ici, ou choisissez-en un.")
+                    .font(.caption).foregroundStyle(.emberMuted).lineLimit(1)
             }
             Spacer()
-            if state.isBusy { ProgressView().controlSize(.small) }
-            Button("Choisir…") { pickFile() }.disabled(state.isBusy)
+            Button("Choisir…") { pickFile() }
+                .buttonStyle(.plain)
+                .foregroundStyle(.ember1)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background(Color.ember2.opacity(0.10)).clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.ember2.opacity(0.3)))
+                .disabled(state.isBusy)
         }
-        .padding(12)
-        .background(isTargeted ? Color.accentColor.opacity(0.12) : Color.clear)
+        .padding(14)
+        .background(isTargeted ? Color.ember2.opacity(0.12) : Color.emberBg2.opacity(0.5))
+        .overlay(RoundedRectangle(cornerRadius: 0).stroke(isTargeted ? Color.ember2 : .clear, lineWidth: 1))
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             handleDrop(providers); return true
         }
@@ -46,16 +51,18 @@ struct ModelView: View {
     private func handleDrop(_ providers: [NSItemProvider]) {
         guard let p = providers.first else { return }
         _ = p.loadObject(ofClass: URL.self) { url, _ in
-            if let url { Task { await state.teach(dataPath: url.path) } }
+            guard let url else { return }
+            Task { @MainActor in await state.teachFile(url) }
         }
     }
 
     private func pickFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.plainText, .text]
+        panel.allowedContentTypes = [.plainText, .text, .data]
         panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url {
-            Task { await state.teach(dataPath: url.path) }
+            Task { await state.teachFile(url) }
         }
     }
 
@@ -64,7 +71,14 @@ struct ModelView: View {
     private var chat: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: 12) {
+                    if state.messages.isEmpty {
+                        VStack(spacing: 14) {
+                            EmberOrb(size: 54).frame(height: 130)
+                            Text("Demandez-lui quelque chose.")
+                                .foregroundStyle(.emberMuted)
+                        }.padding(.top, 60)
+                    }
                     ForEach(state.messages) { msg in
                         Bubble(message: msg).id(msg.id)
                     }
@@ -72,20 +86,28 @@ struct ModelView: View {
                 .padding()
             }
             .onChange(of: state.messages.count) {
-                if let last = state.messages.last { proxy.scrollTo(last.id) }
+                if let last = state.messages.last { withAnimation { proxy.scrollTo(last.id) } }
             }
         }
     }
 
     private var inputBar: some View {
-        HStack {
-            TextField("Écrivez à votre IA…", text: $draftPrompt, onCommit: sendDraft)
-                .textFieldStyle(.roundedBorder)
-            Button(action: sendDraft) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                .buttonStyle(.plain)
-                .disabled(state.isBusy || draftPrompt.isEmpty)
+        HStack(spacing: 10) {
+            TextField("Écrivez à votre IA…", text: $draftPrompt)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Color.emberBg2).clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.ember2.opacity(0.25)))
+                .foregroundStyle(.emberInk)
+                .onSubmit(sendDraft)
+            Button(action: sendDraft) {
+                Image(systemName: "arrow.up.circle.fill").font(.title)
+                    .foregroundStyle(draftPrompt.isEmpty ? Color.emberFaint : Color.ember2)
+            }
+            .buttonStyle(.plain)
+            .disabled(state.isBusy || draftPrompt.isEmpty)
         }
-        .padding(12)
+        .padding(14)
     }
 
     private func sendDraft() {
@@ -102,10 +124,18 @@ struct Bubble: View {
         HStack {
             if message.role == .user { Spacer() }
             Text(message.text)
-                .padding(10)
-                .background(message.role == .user ? Color.accentColor : Color.gray.opacity(0.2))
-                .foregroundStyle(message.role == .user ? .white : .primary)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(
+                    message.role == .user
+                    ? AnyShapeStyle(LinearGradient(colors: [.ember1, .ember2], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    : AnyShapeStyle(Color.emberBg2))
+                .foregroundStyle(message.role == .user ? Color(hexv: 0x1a0d05) : .emberInk)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay {
+                    if message.role == .assistant {
+                        RoundedRectangle(cornerRadius: 16).stroke(Color.ember2.opacity(0.15))
+                    }
+                }
                 .frame(maxWidth: 460, alignment: message.role == .user ? .trailing : .leading)
             if message.role == .assistant { Spacer() }
         }

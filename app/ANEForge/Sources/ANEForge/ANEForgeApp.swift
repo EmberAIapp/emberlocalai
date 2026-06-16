@@ -9,7 +9,7 @@ struct ANEForgeApp: App {
             ContentView()
                 .environmentObject(state)
                 .frame(minWidth: 820, minHeight: 560)
-                .task { await state.refresh() }
+                .task { await state.boot() }
         }
         .windowStyle(.hiddenTitleBar)
     }

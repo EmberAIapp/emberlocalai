@@ -130,6 +130,39 @@ class FactStore:
 
     # ---- extraction ----
 
+    _STOP = {"comment", "quel", "quelle", "quels", "quelles", "quoi", "qui", "est",
+             "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses", "les", "des",
+             "une", "un", "que", "qui", "pour", "avec", "dans", "vous", "tu", "je",
+             "the", "what", "who", "where", "your", "you", "name", "and", "how"}
+
+    def best_match(self, query: str) -> Optional[Fact]:
+        """The fact most relevant to a question — hybrid keyword + semantic match.
+        Lets the chat answer fact-questions reliably from memory (not the LLM),
+        even when the wording differs ('métier' → 'boulanger')."""
+        facts = self.all()
+        if not facts:
+            return None
+        qw = {w.lower() for w in re.findall(r"\w+", query) if len(w) > 2} - self._STOP
+
+        # 1) Exact keyword overlap (cheap, high precision)
+        kw_best, kw_n = None, 0
+        for f in facts:
+            fw = {w.lower() for w in re.findall(r"\w+", f.text)}
+            n = len(qw & fw)
+            if n > kw_n:
+                kw_n, kw_best = n, f
+        if kw_n >= 2:
+            return kw_best
+
+        # 2) Semantic similarity (handles synonyms / paraphrase), if available
+        sims = _semantic_scores(query, [f.text for f in facts])
+        if sims is not None:
+            i = int(max(range(len(sims)), key=lambda j: sims[j]))
+            if sims[i] >= 0.30:
+                return facts[i]
+
+        return kw_best if kw_n >= 1 and len(qw) <= 2 else None
+
     def extract_and_store(self, message: str) -> list[Fact]:
         """Pull facts from a user message and store them. Returns the new facts."""
         added: list[Fact] = []
@@ -160,6 +193,39 @@ class FactStore:
             return ""
         lines = "\n".join(f"- {f.text}" for f in facts)
         return f"Things you know about the user:\n{lines}"
+
+
+# --- Optional local semantic matching (multilingual, lightweight, no torch) ---
+_EMBEDDER = None
+_EMBEDDER_TRIED = False
+
+
+def _get_embedder():
+    global _EMBEDDER, _EMBEDDER_TRIED
+    if _EMBEDDER_TRIED:
+        return _EMBEDDER
+    _EMBEDDER_TRIED = True
+    try:
+        from model2vec import StaticModel
+        _EMBEDDER = StaticModel.from_pretrained("minishlab/potion-multilingual-128M")
+    except Exception:
+        _EMBEDDER = None
+    return _EMBEDDER
+
+
+def _semantic_scores(query: str, texts: list[str]):
+    """Cosine similarity of `query` against each text, or None if unavailable."""
+    m = _get_embedder()
+    if m is None:
+        return None
+    try:
+        import numpy as np
+        vecs = m.encode([query] + texts)
+        vecs = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
+        q, rest = vecs[0], vecs[1:]
+        return [float(q @ r) for r in rest]
+    except Exception:
+        return None
 
 
 def store_for_model(model_name: str, models_dir: Optional[Path] = None) -> FactStore:

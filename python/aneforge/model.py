@@ -5,7 +5,11 @@ from typing import Optional
 
 # Registry of known models with their HuggingFace identifiers
 MODEL_REGISTRY = {
-    # SmolLM2 family
+    # SmolLM2 — Instruct variants (chat-tuned) are the default for conversation
+    "smollm2-135m-instruct": "HuggingFaceTB/SmolLM2-135M-Instruct",
+    "smollm2-360m-instruct": "HuggingFaceTB/SmolLM2-360M-Instruct",
+    "smollm2-1.7b-instruct": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+    # SmolLM2 base (completion) variants
     "smollm2-135m": "HuggingFaceTB/SmolLM2-135M",
     "smollm2-360m": "HuggingFaceTB/SmolLM2-360M",
     "smollm2-1.7b": "HuggingFaceTB/SmolLM2-1.7B",
@@ -149,7 +153,9 @@ def get_model_info(name: str) -> dict:
     # Model config data
     configs = {
         "smollm2-135m": {"params": "135M", "layers": 30, "dim": 576, "type": "causal-lm"},
+        "smollm2-135m-instruct": {"params": "135M", "layers": 30, "dim": 576, "type": "chat"},
         "smollm2-360m": {"params": "360M", "layers": 32, "dim": 960, "type": "causal-lm"},
+        "smollm2-360m-instruct": {"params": "360M", "layers": 32, "dim": 960, "type": "chat"},
         "qwen2.5-0.5b": {"params": "500M", "layers": 24, "dim": 896, "type": "causal-lm"},
         "phi-3-mini": {"params": "3.8B", "layers": 32, "dim": 3072, "type": "causal-lm"},
         "tinyllama": {"params": "1.1B", "layers": 22, "dim": 2048, "type": "causal-lm"},
