@@ -23,6 +23,7 @@ import json
 import queue
 import re
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -175,12 +176,65 @@ class Engine:
         self.ready = False
         self._history: dict[str, list] = {}
         self._lock = threading.Lock()
+        self._last_activity = 0.0
+        self._consolidated: dict[str, int] = {}   # name → #user-turns already consolidated
 
     def warmup(self):
         from aneforge.mlx_chat import MLXChat, DEFAULT_MODEL
         self.model_id = self.model_id or DEFAULT_MODEL
         self.mlx = MLXChat(self.model_id)
         self.ready = True
+        # §4.D — keep learning when idle: consolidate the conversation into memory + refresh a
+        # personal profile. (Learning into MEMORY, not weight retraining — §9.A: on-the-fly
+        # fine-tuning collapses a 1.5B model.)
+        threading.Thread(target=self._idle_loop, daemon=True).start()
+
+    def _touch(self):
+        self._last_activity = time.time()
+
+    def _idle_loop(self):
+        while True:
+            time.sleep(15)
+            if not self.ready or (time.time() - self._last_activity) < 25:
+                continue
+            for name in list(self._history.keys()):
+                try:
+                    self._consolidate(name)
+                except Exception:
+                    pass
+            self._last_activity = time.time()   # don't re-run every loop while still idle
+
+    def _consolidate(self, name: str):
+        """Idle learning: re-read the conversation's user turns for durable facts that the
+        per-message pass may have missed, grounded + deduped, then refresh a personal profile."""
+        if not (MODELS_DIR / name).exists():
+            return
+        hist = self._history.get(name, [])
+        users = [m["content"] for m in hist if m.get("role") == "user"]
+        done = self._consolidated.get(name, 0)
+        store = store_for_model(name)
+        existing = [x.text for x in store.all()]
+        for msg in users[done:]:
+            try:
+                for f in self._extract_facts(msg):
+                    if _grounded(f, msg) and not _is_near_dup(f, existing) and store.add(f, kind="misc", source="idle"):
+                        existing.append(f)
+            except Exception:
+                continue
+        self._consolidated[name] = len(users)
+        # refresh a short personal profile from everything known (visible "learning")
+        if existing:
+            try:
+                facts = "\n".join(f"- {t}" for t in existing[:40])
+                sysmsg = ("Résume en 2-3 phrases, à la 2e personne (« tu »), ce que l'on sait de "
+                          "l'utilisateur à partir de ces faits. Reste fidèle, n'invente rien, garde "
+                          "la langue des faits.")
+                with self._lock:
+                    profile = self.mlx.chat([{"role": "system", "content": sysmsg},
+                                             {"role": "user", "content": facts}], max_tokens=160)
+                (MODELS_DIR / name / "profile.txt").write_text(profile.strip())
+            except Exception:
+                pass
 
     def _persona(self, name: str, prompt: str) -> str:
         s = _load_settings(name)
@@ -199,6 +253,7 @@ class Engine:
         return "\n\n".join(lines)
 
     def chat(self, name: str, prompt: str) -> dict:
+        self._touch()
         store = store_for_model(name)
 
         # Reliable fact recall: answer straight from editable memory on a clear match.
@@ -229,6 +284,7 @@ class Engine:
 
     def chat_stream(self, name: str, prompt: str):
         """Yield the reply token-by-token (§5.4). Same memory/recall/learning as chat()."""
+        self._touch()
         store = store_for_model(name)
         is_q = ("?" in prompt) or any(prompt.lower().lstrip().startswith(w) for w in _QWORDS)
         if is_q:
@@ -368,6 +424,11 @@ def make_handler(engine: Engine):
             if u.path == "/settings":
                 name = (parse_qs(u.query).get("name") or [""])[0]
                 return self._send(200, _load_settings(name))
+            if u.path == "/profile":
+                # the personal profile Ember refreshes while idle (§4.D continued learning)
+                name = (parse_qs(u.query).get("name") or [""])[0]
+                p = MODELS_DIR / name / "profile.txt"
+                return self._send(200, {"profile": p.read_text().strip() if p.exists() else ""})
             return self._send(404, {"error": "not found"})
 
         def do_POST(self):
