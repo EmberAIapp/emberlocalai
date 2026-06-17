@@ -130,3 +130,12 @@
 "Choisis une IA en haut, ou crées-en une." = "Choisis une IA en haut, ou crées-en une.";
 "Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer." = "Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer.";
 "100% local · multilingue · optimisé Apple Silicon" = "100% local · multilingue · optimisé Apple Silicon";
+
+/* Apprendre — connecteurs (added) */
+"Apprendre mes notes" = "Apprendre mes notes";
+"Connecter un dossier — choisis ce qu'Ember peut lire (Obsidian, Documents, un projet…)" = "Connecter un dossier — choisis ce qu'Ember peut lire (Obsidian, Documents, un projet…)";
+"Lecture…" = "Lecture…";
+"Lis tes notes et apprends-en des faits — 100% en local" = "Lis tes notes et apprends-en des faits — 100% en local";
+"Re-synchroniser" = "Re-synchroniser";
+"Voici ce qu'Ember vient de retenir" = "Voici ce qu'Ember vient de retenir";
+"Ce qu'Ember apprend de tes données apparaît dans l'onglet Mémoire." = "Ce qu'Ember apprend de tes données apparaît dans l'onglet Mémoire.";

@@ -14,14 +14,25 @@ struct IngestView: View {
                 dropzone
                     .padding(.top, 22)
 
-                // CONNECTEURS LOCAUX · LECTURE SEULE — Apple Notes is REAL (reads & learns).
+                // CONNECTEURS LOCAUX · LECTURE SEULE — Apple Notes + tes propres dossiers (réels).
                 SectionLabel("Connecteurs locaux · lecture seule")
                     .padding(.top, 30)
                     .padding(.bottom, 14)
-                AppleNotesCard()
+                VStack(spacing: 10) {
+                    AppleNotesCard()
+                    ForEach(state.connectedFolders, id: \.self) { path in
+                        ConnectedFolderCard(path: path)
+                    }
+                    ConnectFolderCard(onPick: pickFolder)
+                }
 
                 if state.isLearning {
                     progressPanel
+                        .padding(.top, 18)
+                }
+
+                if !state.lastLearned.isEmpty {
+                    learnedPanel
                         .padding(.top, 18)
                 }
 
@@ -32,10 +43,52 @@ struct IngestView: View {
             .padding(.horizontal, 48)
             .padding(.bottom, 40)
         }
-        // Keep the fact count fresh so the hint reflects reality.
+        // Keep the fact count + connectors fresh.
         .task(id: state.selected?.name) {
+            state.loadConnectedFolders()
             if let n = state.selected?.name { await state.loadFacts(n) }
         }
+    }
+
+    private func pickFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Connecter"
+        panel.message = "Choisis un dossier — Ember en apprendra les fichiers .txt/.md/.pdf, en local."
+        if panel.runModal() == .OK, let url = panel.url {
+            Task { await state.connectFolder(url) }
+        }
+    }
+
+    // « Voici ce que j'ai appris » — rend l'apprentissage tangible (les faits extraits à l'instant).
+    private var learnedPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x9fd9ad))
+                Text("Voici ce qu'Ember vient de retenir")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color(hexv: 0xe8c4a8))
+                Spacer(minLength: 0)
+            }
+            ForEach(state.lastLearned.prefix(8)) { f in
+                HStack(alignment: .top, spacing: 8) {
+                    Text("•").foregroundStyle(Color(hexv: 0x9fd9ad))
+                    Text(f.text).font(.system(size: 12.5)).foregroundStyle(Color(hexv: 0xe7d8cb))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+            }
+            if state.lastLearned.count > 8 {
+                Text("… et \(state.lastLearned.count - 8) autre(s) — tout est dans Mémoire.")
+                    .font(.system(size: 11.5)).foregroundStyle(Color(hexv: 0x8a7d75))
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hexv: 0x5fd07a).opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color(hexv: 0x5fd07a).opacity(0.20), lineWidth: 1))
     }
 
     // Honest pointer: learned facts live in Mémoire (no fake "sources" list).
@@ -147,20 +200,23 @@ struct IngestView: View {
 
     private func openPicker() {
         let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true       // plusieurs fichiers
+        panel.canChooseDirectories = true          // … ou des dossiers (tenu : « ou dossiers »)
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.plainText, .text, .data]
-        if panel.runModal() == .OK, let url = panel.url {
-            Task { await state.teachFile(url) }
+        panel.allowedContentTypes = [.plainText, .text, .data, .folder]
+        panel.prompt = "Apprendre"
+        if panel.runModal() == .OK {
+            let urls = panel.urls
+            Task { await state.teachPaths(urls) }
         }
     }
 
+    // A dropped file OR folder (teachPaths walks folders). Multi-file → use "clique pour parcourir".
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
             guard let url else { return }
-            Task { await state.teachFile(url) }
+            Task { await state.teachPaths([url]) }
         }
         return true
     }
@@ -204,6 +260,84 @@ private struct AppleNotesCard: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(Color(hexv: 0x5fd07a).opacity(hover ? 0.30 : 0.12), lineWidth: 1)
             )
+        }
+        .buttonStyle(.plain)
+        .disabled(state.isLearning)
+        .onHover { hover = $0 }
+    }
+}
+
+// MARK: - A connected folder (chosen by the user — persisted, re-syncable, removable)
+private struct ConnectedFolderCard: View {
+    @EnvironmentObject var state: AppState
+    let path: String
+    @State private var hover = false
+
+    private var name: String { (path as NSString).lastPathComponent }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Color(hexv: 0xff965a).opacity(0.16))
+                Text("📁").font(.system(size: 19))
+            }
+            .frame(width: 38, height: 38)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hexv: 0xecd9c9))
+                Text(path)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color(hexv: 0x8a7d75))
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Button { Task { await state.resyncFolder(path) } } label: {
+                TagPill(text: state.isLearning ? "…" : "Re-synchroniser",
+                        fg: Color(hexv: 0x9fd9ad), bg: Color(hexv: 0x5fd07a).opacity(0.12))
+            }
+            .buttonStyle(.plain).disabled(state.isLearning)
+            Button { state.disconnectFolder(path) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(hexv: 0x8a7d75))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.07), lineWidth: 1))
+    }
+}
+
+// MARK: - "Connecter un dossier" (choisis n'importe quel dossier du Mac)
+private struct ConnectFolderCard: View {
+    @EnvironmentObject var state: AppState
+    var onPick: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: onPick) {
+            HStack(spacing: 12) {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hexv: 0xc79a82))
+                Text("Connecter un dossier — choisis ce qu'Ember peut lire (Obsidian, Documents, un projet…)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hexv: 0xc79a82))
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(hover ? Color(hexv: 0xff783c).opacity(0.06) : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color(hexv: 0xff965a).opacity(0.25),
+                              style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
         }
         .buttonStyle(.plain)
         .disabled(state.isLearning)

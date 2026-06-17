@@ -46,8 +46,9 @@ final class AppState: ObservableObject {
     @Published var isLearning = false      // ingesting / training
     @Published var talking = false         // briefly true right after a reply lands
     @Published var trainingLog: [String] = []
+    @Published var lastLearned: [Fact] = []         // facts learned by the most recent ingestion
+    @Published var connectedFolders: [String] = []  // local folder connectors (persisted, per-IA)
     @Published var errorText: String?
-    @Published var lastLearned: [String] = []
     @Published var booting = true          // daemon/model still warming up
 
     // Navigation / overlays
@@ -361,32 +362,124 @@ final class AppState: ObservableObject {
     /// This sidesteps macOS TCC: the engine never touches the original protected folder.
     /// §4.A — learn from a dropped file by extracting its facts into memory (reliable recall),
     /// not by fine-tuning weights. Reads .txt/.md as UTF-8 and .pdf via PDFKit.
-    func teachFile(_ url: URL) async {
+    nonisolated static let supportedExt: Set<String> = ["txt", "md", "markdown", "text", "pdf", "rtf", "csv"]
+    nonisolated static let fileCap = 80   // bound a folder/full scan so a huge tree can't run for hours
+
+    func teachFile(_ url: URL) async { await teachPaths([url]) }
+
+    /// Learn from any mix of dropped/selected files AND folders (folders are walked for
+    /// supported types). 100% local: each file's text → the local model's fact extractor.
+    /// Surfaces exactly what was learned (`lastLearned`) so it's tangible.
+    func teachPaths(_ urls: [URL]) async {
         guard let name = selected?.name else {
             errorText = "Choisis (ou crée) d'abord une IA."; return
         }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        isLearning = true; trainingLog = []; defer { isLearning = false }
-        do {
-            let text: String
-            if url.pathExtension.lowercased() == "pdf" {
-                text = PDFDocument(url: url)?.string ?? ""
-            } else {
-                let data = try Data(contentsOf: url)
-                text = String(data: data, encoding: .utf8)
-                    ?? String(decoding: data, as: UTF8.self)
-            }
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                errorText = "Fichier vide ou illisible : \(url.lastPathComponent)"; return
-            }
-            trainingLog.append("Lecture de \(url.lastPathComponent)…")
-            let learned = try await engine.ingest(name: name, text: text)
-            trainingLog.append("✦ \(learned) fait(s) appris depuis \(url.lastPathComponent)")
-            await loadFacts(name)
-        } catch {
-            errorText = "Lecture du fichier impossible : \(error.localizedDescription)"
+        guard !isLearning, !urls.isEmpty else { return }
+        isLearning = true; trainingLog = []; lastLearned = []; defer { isLearning = false }
+
+        // Hold the security scope of each picked top-level URL while we read its children.
+        let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
+        defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
+
+        let before = Set(((try? await engine.memory(name: name)) ?? []).map(\.id))
+        let all = Self.expandToFiles(urls)
+        guard !all.isEmpty else {
+            errorText = "Aucun fichier .txt/.md/.pdf à apprendre ici."; return
         }
+        let files = Array(all.prefix(Self.fileCap))
+        var done = 0
+        for url in files {
+            done += 1
+            trainingLog.append("Lecture de \(url.lastPathComponent)… (\(done)/\(files.count))")
+            if let text = Self.readText(url),
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = try? await engine.ingest(name: name, text: text)
+            }
+        }
+        let after = (try? await engine.memory(name: name)) ?? []
+        lastLearned = after.filter { !before.contains($0.id) }
+        facts = after
+        profileText = await engine.profile(name: name)
+        if all.count > files.count {
+            trainingLog.append("✦ \(lastLearned.count) fait(s) appris · \(files.count)/\(all.count) fichiers (plafond atteint)")
+        } else {
+            trainingLog.append("✦ \(lastLearned.count) fait(s) appris depuis \(files.count) fichier(s)")
+        }
+    }
+
+    /// Flatten files + folders → the list of supported files to read (folders walked recursively).
+    nonisolated static func expandToFiles(_ urls: [URL]) -> [URL] {
+        let fm = FileManager.default
+        var out: [URL] = []
+        for u in urls {
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
+                let en = fm.enumerator(at: u, includingPropertiesForKeys: nil,
+                                       options: [.skipsHiddenFiles, .skipsPackageDescendants])
+                while let f = en?.nextObject() as? URL {
+                    if supportedExt.contains(f.pathExtension.lowercased()) { out.append(f) }
+                    if out.count >= fileCap * 2 { break }   // hard guard on enormous trees
+                }
+            } else if supportedExt.contains(u.pathExtension.lowercased()) {
+                out.append(u)
+            }
+        }
+        return out
+    }
+
+    nonisolated static func readText(_ url: URL) -> String? {
+        if url.pathExtension.lowercased() == "pdf" { return PDFDocument(url: url)?.string }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+    }
+
+    // MARK: - Local folder connectors (choose ANY folder on the Mac; persisted, re-syncable)
+
+    private func foldersKey(_ ia: String) -> String { "ember.connectors.folders.\(ia)" }
+
+    /// Restore the connected folders for the selected IA (display paths).
+    func loadConnectedFolders() {
+        guard let ia = selected?.name,
+              let dict = UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data] else {
+            connectedFolders = []; return
+        }
+        connectedFolders = dict.keys.sorted()
+    }
+
+    /// Connect a folder the user picked: remember it (security-scoped bookmark) and learn it now.
+    func connectFolder(_ url: URL) async {
+        guard let ia = selected?.name else {
+            errorText = "Choisis (ou crée) d'abord une IA."; return
+        }
+        if let data = try? url.bookmarkData(options: [],
+                                            includingResourceValuesForKeys: nil, relativeTo: nil) {
+            var dict = (UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data]) ?? [:]
+            dict[url.path] = data
+            UserDefaults.standard.set(dict, forKey: foldersKey(ia))
+            loadConnectedFolders()
+        }
+        await teachPaths([url])
+    }
+
+    /// Re-learn a connected folder (resolve its stored bookmark).
+    func resyncFolder(_ path: String) async {
+        guard let ia = selected?.name,
+              let dict = UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data],
+              let data = dict[path] else { return }
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: data, options: [],
+                                 relativeTo: nil, bookmarkDataIsStale: &stale) else {
+            errorText = "Dossier introuvable : \(path)"; return
+        }
+        await teachPaths([url])
+    }
+
+    func disconnectFolder(_ path: String) {
+        guard let ia = selected?.name else { return }
+        var dict = (UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data]) ?? [:]
+        dict.removeValue(forKey: path)
+        UserDefaults.standard.set(dict, forKey: foldersKey(ia))
+        loadConnectedFolders()
     }
 
     /// REAL Apple Notes connector (§4.A) — read the user's notes locally and learn facts from them.

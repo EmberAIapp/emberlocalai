@@ -130,3 +130,12 @@
 "Choisis une IA en haut, ou crées-en une." = "Escolhe uma IA em cima, ou cria uma.";
 "Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer." = "Pergunta-lhe o que quiseres sobre ti, ou descreve o que queres gerar.";
 "100% local · multilingue · optimisé Apple Silicon" = "100% local · multilíngue · otimizado para Apple Silicon";
+
+/* Apprendre — connecteurs (added) */
+"Apprendre mes notes" = "Aprender as minhas notas";
+"Connecter un dossier — choisis ce qu'Ember peut lire (Obsidian, Documents, un projet…)" = "Ligar uma pasta — escolhe o que o Ember pode ler (Obsidian, Documentos, um projeto…)";
+"Lecture…" = "A ler…";
+"Lis tes notes et apprends-en des faits — 100% en local" = "Lê as tuas notas e aprende factos a partir delas — 100% local";
+"Re-synchroniser" = "Re-sincronizar";
+"Voici ce qu'Ember vient de retenir" = "Eis o que o Ember acabou de aprender";
+"Ce qu'Ember apprend de tes données apparaît dans l'onglet Mémoire." = "O que o Ember aprende dos teus dados aparece no separador Memória.";
