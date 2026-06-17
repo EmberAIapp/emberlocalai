@@ -131,6 +131,36 @@ def _is_near_dup(text: str, existing: list, thresh: float = 0.80) -> bool:
     return False
 
 
+# Messages that are COMMANDS / requests / questions to Ember — never durable facts about the
+# user. (Clicking a suggestion like "Aide-moi à organiser ma journée" must NOT become a fact.)
+_CMD_STARTS = (
+    "aide", "ouvre", "lance", "liste", "résume", "resume", "montre", "présente", "presente",
+    "crée", "cree", "écris", "ecris", "rédige", "redige", "cherche", "trouve", "prépare", "prepare",
+    "dis", "raconte", "explique", "fais", "donne", "mets", "met ", "joue", "envoie", "traduis",
+    "calcule", "génère", "genere", "peux-tu", "peux tu", "pourrais-tu", "pourrais tu", "tu peux",
+    "help", "open", "list", "summar", "show", "write", "draft", "search", "find", "prepare",
+    "tell", "explain", "make", "give", "play", "send", "translate", "generate", "can you",
+    "could you", "please", "bonjour", "salut", "hello", "merci", "thanks",
+)
+
+
+def _looks_like_command(message: str) -> bool:
+    m = (message or "").strip().lower().lstrip("«»\"'.,-–—  ").strip()
+    return m.startswith(_CMD_STARTS)
+
+
+def _is_real_fact(text: str) -> bool:
+    """Drop extractions that aren't durable facts ABOUT THE USER: second-person lines (addressed
+    to the user / command echoes) and assistant boiler-plate."""
+    t = text.strip().lower()
+    if t.startswith(("tu ", "vous ", "tu,", "vous,", "tu’", "t'")):
+        return False
+    fluff = ["besoin d'aide", "disponible pour", "puis-je", "comment puis-je", "ravi de",
+             "je suis là", "je suis la", "aider aujourd", "assistant", "comment vas",
+             "n'hésite", "n'hesite"]
+    return not any(x in t for x in fluff)
+
+
 # --- Agent sessions (Mode Her): stream events + human-in-the-loop permission gates ---
 _AGENT_SESSIONS: dict = {}
 
@@ -240,14 +270,18 @@ class Engine:
         store = store_for_model(name)
         existing = [x.text for x in store.all()]
         for msg in users[done:]:
+            if _looks_like_command(msg):
+                continue
             try:
                 for f in self._extract_facts(msg):
-                    if _grounded(f, msg) and not _is_near_dup(f, existing) and store.add(f, kind="misc", source="idle"):
+                    if _is_real_fact(f) and _grounded(f, msg) and not _is_near_dup(f, existing) \
+                       and store.add(f, kind="misc", source="idle"):
                         existing.append(f)
             except Exception:
                 continue
         self._consolidated[name] = len(users)
         # refresh a short personal profile from everything known (visible "learning")
+        prof_path = MODELS_DIR / name / "profile.txt"
         if existing:
             try:
                 facts = "\n".join(f"- {t}" for t in existing[:40])
@@ -257,9 +291,11 @@ class Engine:
                 with self._lock:
                     profile = self.mlx.chat([{"role": "system", "content": sysmsg},
                                              {"role": "user", "content": facts}], max_tokens=160)
-                (MODELS_DIR / name / "profile.txt").write_text(profile.strip())
+                prof_path.write_text(profile.strip())
             except Exception:
                 pass
+        elif prof_path.exists():
+            prof_path.unlink()   # no facts → no stale garbage profile
 
     def _persona(self, name: str, prompt: str) -> str:
         s = _load_settings(name)
@@ -339,6 +375,8 @@ class Engine:
         threading.Thread(target=self._learn_async, args=(name, prompt), daemon=True).start()
 
     def _learn_async(self, name: str, message: str):
+        if _looks_like_command(message):   # commands/requests/greetings aren't facts about the user
+            return
         try:
             facts = self._extract_facts(message)
         except Exception:
@@ -348,31 +386,29 @@ class Engine:
         store = store_for_model(name)  # fresh connection for this thread
         existing = [x.text for x in store.all()]
         for f in facts:
-            # §2.4 honesty: a small model embellishes (it invents age, job, extra tastes…).
-            # Keep ONLY facts grounded in what the user actually wrote — the same
-            # anti-hallucination gate already used for file ingestion. Without this, chat
-            # silently stored invented "facts about you", which is worse than forgetting.
-            if not _grounded(f, message):
-                continue
-            if _is_near_dup(f, existing):   # skip paraphrases of what we already know
+            # §2.4 honesty: keep ONLY real, grounded, non-duplicate facts about the USER.
+            # (_is_real_fact drops command echoes / assistant fluff; _grounded drops the small
+            # model's embellishments; _is_near_dup drops paraphrases.)
+            if not _is_real_fact(f) or not _grounded(f, message) or _is_near_dup(f, existing):
                 continue
             if store.add(f, kind="misc", source="model"):
                 existing.append(f)
 
     def _extract_facts(self, message: str) -> list[str]:
-        sys = ("You extract durable personal facts the user EXPLICITLY states about THEMSELVES "
-               "(name, age, location, job, relationships, tastes, ongoing projects). Rules:\n"
-               "- Output ONLY a JSON array of short THIRD-PERSON statements in the user's "
-               'language, e.g. ["Habite à Lyon","A un chat nommé Marlow"].\n'
-               "- ATOMIC: exactly one fact per item. NEVER join two facts with 'et'/'and'/','.\n"
-               "- Use ONLY information written in the message. NEVER infer, guess, add or "
-               "embellish any detail (age, job, tastes…) that is not literally stated.\n"
-               "- No duplicate or paraphrased facts. No questions, requests, dates, greetings, "
-               "or transient/trivial info. At most 5 facts.\n"
-               "- If the message states no durable personal fact, reply exactly []." )
+        sys = ("Extract durable personal facts the user EXPLICITLY states about THEMSELVES "
+               "(name, age, location, job, relationships, tastes, ongoing projects).\n"
+               "STRICT RULES:\n"
+               "- Output ONLY a JSON array of short THIRD-PERSON statements in the user's language.\n"
+               "- Use ONLY words/entities present in the message. NEVER invent or add a name, place, "
+               "pet, age, project, job or any detail that is not literally written. If unsure, omit it.\n"
+               "- ATOMIC: exactly one fact per item; never join with 'et'/'and'/','.\n"
+               "- No duplicates, no questions/requests/greetings, no transient info. At most 4 facts.\n"
+               "- If the message states no durable personal fact, reply exactly: []\n"
+               'Format example (for the sentence "je m\'appelle Théo et je vis à Nantes"): '
+               '["S\'appelle Théo","Vit à Nantes"]')
         msgs = [{"role": "system", "content": sys}, {"role": "user", "content": message}]
         with self._lock:
-            raw = self.mlx.chat(msgs, max_tokens=160)
+            raw = self.mlx.chat(msgs, max_tokens=100)
         return _parse_fact_array(raw)
 
     def ingest(self, name: str, text: str) -> int:
@@ -387,7 +423,7 @@ class Engine:
                     # §2.4 honesty: never store a fact the model invented — keep it only if its
                     # content is actually grounded in the source chunk, and isn't a paraphrase
                     # of something we already know.
-                    if not _grounded(f, chunk) or _is_near_dup(f, existing):
+                    if not _is_real_fact(f) or not _grounded(f, chunk) or _is_near_dup(f, existing):
                         continue
                     if store.add(f, kind="misc", source="file"):
                         existing.append(f); learned += 1
