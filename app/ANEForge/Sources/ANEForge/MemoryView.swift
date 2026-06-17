@@ -239,76 +239,77 @@ private struct MemoryAddFactRow: View {
 // MARK: - Wiki column
 
 private struct MemoryWikiColumn: View {
+    @EnvironmentObject var state: AppState
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("Wiki personnel · auto-maintenu")
-                .padding(.bottom, 13)                 // label margin-bottom:13px
-            MemoryWikiPanel()
-            SectionLabel("Timeline")
-                .padding(.top, 24)                    // margin:24px 0 13px
+            SectionLabel("Ce qu'Ember sait de toi · profil auto-maintenu")
                 .padding(.bottom, 13)
-            MemoryTimeline()
+            MemoryProfilePanel()
+            SectionLabel("Appris récemment")
+                .padding(.top, 24)
+                .padding(.bottom, 13)
+            MemoryRecent()
         }
     }
 }
 
-private struct MemoryWikiPanel: View {
+// REAL personal profile — synthesized locally from your facts, refreshed while Ember is idle.
+private struct MemoryProfilePanel: View {
+    @EnvironmentObject var state: AppState
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // sources row — gap:8px; 11px; #8a7d75; margin-bottom:14px
             HStack(spacing: 8) {
-                TagPill(
-                    text: "raw/ 142 sources",
-                    fg: Color(hexv: 0xaeb9e8),
-                    bg: Color(hexv: 0x96aaff).opacity(0.12),
-                    radius: 8, fontSize: 11
-                )
-                Text("→")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(hexv: 0x8a7d75))
-                TagPill(
-                    text: "wiki/ 12 pages",
-                    fg: Color(hexv: 0xe8b48f),
-                    bg: Color(hexv: 0xff965a).opacity(0.14),
-                    radius: 8, fontSize: 11
-                )
+                TagPill(text: "\(state.facts.count) fait\(state.facts.count > 1 ? "s" : "")",
+                        fg: Color(hexv: 0xe8b48f), bg: Color(hexv: 0xff965a).opacity(0.14), radius: 8, fontSize: 11)
                 Spacer(minLength: 0)
             }
             .padding(.bottom, 14)
-            Text("Projet café-librairie")                 // serif 21 / 600 / #f3e3d7
-                .font(.emberSerif(21))
-                .foregroundStyle(Color(hexv: 0xf3e3d7))
-            Text("Café-librairie à la Croix-Rousse avec coin torréfaction. Deux locaux étudiés rue de Belfort ; préférence pour celui avec cave voûtée (stockage des grains). Budget visé ~85 k€, ouverture envisagée printemps 2027.")
-                .font(.emberSerif(15.5, weight: .regular))  // serif 15.5 / line-height 1.6 / #cdbcb0
-                .foregroundStyle(Color(hexv: 0xcdbcb0))
-                .lineSpacing(5)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 10)                          // margin-top:10px
-            // footer — margin-top:14px; padding-top:13px; border-top rgba(255,255,255,0.07)
-            Rectangle()
-                .fill(Color.white.opacity(0.07))
-                .frame(height: 1)
-                .padding(.top, 14)
-            footer
-                .padding(.top, 13)
+            if state.profileText.isEmpty {
+                Text("Ton profil se construit tout seul au fil de vos échanges — et quand Ember est en veille. Parle-lui un peu, puis reviens ici.")
+                    .font(.emberSerif(15.5, weight: .regular)).foregroundStyle(Color(hexv: 0xcdbcb0))
+                    .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(state.profileText)
+                    .font(.emberSerif(16, weight: .regular)).foregroundStyle(Color(hexv: 0xe7d3c5))
+                    .lineSpacing(6).fixedSize(horizontal: false, vertical: true)
+            }
+            Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.top, 14)
+            Text("Synthétisé en local à partir de tes faits · mis à jour quand Ember est en veille")
+                .font(.system(size: 11.5)).foregroundStyle(Color(hexv: 0x8a7d75))
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 13)
         }
-        .padding(18)                                        // padding:18px
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()                                        // radius 18 / blur / warm border
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading).glassCard()
     }
+}
 
-    // 11.5px #8a7d75 ; middle span #b09a8c
-    private var footer: some View {
-        (
-            Text("Recoupé depuis : ")
-                .foregroundStyle(Color(hexv: 0x8a7d75))
-            + Text("Notes (3), Mail (2), conversation (5)")
-                .foregroundStyle(Color(hexv: 0xb09a8c))
-            + Text(" · maintenu par le modèle local")
-                .foregroundStyle(Color(hexv: 0x8a7d75))
-        )
-        .font(.system(size: 11.5))
-        .fixedSize(horizontal: false, vertical: true)
+// REAL recent facts (no fictional timeline).
+private struct MemoryRecent: View {
+    @EnvironmentObject var state: AppState
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if state.facts.isEmpty {
+                Text("Rien encore — apprends-lui quelque chose (ou parle-lui) et ça apparaîtra ici.")
+                    .font(.system(size: 12.5)).foregroundStyle(Color(hexv: 0x8a7d75)).padding(.vertical, 4)
+            } else {
+                let recent = Array(state.facts.suffix(6).reversed())
+                ForEach(Array(recent.enumerated()), id: \.element.id) { idx, f in
+                    HStack(alignment: .top, spacing: 14) {
+                        VStack(spacing: 0) {
+                            Circle().fill(Color(hexv: 0xff9a4a)).frame(width: 9, height: 9)
+                                .shadow(color: Color(hexv: 0xff9a4a), radius: 4).padding(.top, 5)
+                            if idx != recent.count - 1 {
+                                Rectangle().fill(Color(hexv: 0xffaa78).opacity(0.2)).frame(width: 1.5)
+                                    .frame(minHeight: 14, maxHeight: .infinity)
+                            }
+                        }
+                        .frame(width: 9)
+                        Text(f.text).font(.system(size: 13.5)).foregroundStyle(Color(hexv: 0xe7d8cb))
+                            .lineSpacing(2).fixedSize(horizontal: false, vertical: true).padding(.bottom, 14)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
     }
 }
 

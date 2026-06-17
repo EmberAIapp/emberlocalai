@@ -215,8 +215,11 @@ final class AppState: ObservableObject {
 
     // MARK: - Memory
 
+    @Published var profileText = ""        // real auto-profile (built while idle)
+
     func loadFacts(_ name: String) async {
         facts = (try? await engine.memory(name: name)) ?? []
+        profileText = await engine.profile(name: name)
     }
 
     func forget(_ fact: Fact) async {

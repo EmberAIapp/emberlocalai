@@ -119,10 +119,11 @@ enum DesignData {
 
     static let herTranscript = "« Prépare-moi le dossier pour la visite du local, et bloque jeudi 10 h. »"
 
+    // Real, neutral starting points (no fictional café scenario) — work for anyone.
     static let homeSuggestions = [
-        "Carte des boissons du café",
-        "Palette couleur pour l'identité",
-        "Budget d'ouverture en graphique",
-        "Rétroplanning d'ouverture",
+        "Qu'est-ce que tu sais de moi ?",
+        "Présente-toi en une phrase",
+        "Aide-moi à organiser ma journée",
+        "Apprends quelque chose sur moi",
     ]
 }

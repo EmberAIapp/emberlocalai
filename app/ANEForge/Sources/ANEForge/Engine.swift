@@ -226,6 +226,14 @@ actor Engine {
         try JSONDecoder().decode([Fact].self, from: try await get("/memory?name=\(name)"))
     }
 
+    /// The personal profile Ember refreshes while idle (real, generated from your facts).
+    func profile(name: String) async -> String {
+        let q = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
+        guard let d = try? await get("/profile?name=\(q)"),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return "" }
+        return (j["profile"] as? String) ?? ""
+    }
+
     func forget(name: String, id: Int) async throws {
         _ = try await post("/forget", ["name": name, "id": id])
     }
