@@ -8,9 +8,10 @@ struct ANEForgeApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(state)
-                .frame(minWidth: 820, minHeight: 560)
+                .frame(minWidth: 1100, minHeight: 720)
                 .task { await state.boot() }
         }
         .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1440, height: 920)   // the design canvas — keeps the layout from cramping
     }
 }

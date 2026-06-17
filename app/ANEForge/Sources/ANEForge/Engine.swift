@@ -15,6 +15,14 @@ struct ChatReply: Codable {
     var source: String
 }
 
+/// One remembered fact (mirrors the daemon's /memory rows).
+struct Fact: Identifiable, Codable, Hashable {
+    var id: Int
+    var kind: String
+    var text: String
+    var source: String
+}
+
 struct AISettings: Codable {
     var persona: String = ""
     var maxTokens: Int = 220
@@ -87,11 +95,27 @@ actor Engine {
         _ = try await post("/delete", ["name": name])
     }
 
+    func rename(name: String, to newName: String) async throws {
+        _ = try await post("/rename", ["name": name, "new": newName])
+    }
+
     func chat(name: String, prompt: String) async throws -> ChatReply {
         try JSONDecoder().decode(ChatReply.self, from: try await post("/chat", ["name": name, "prompt": prompt]))
     }
 
     func reset(name: String) async { _ = try? await post("/reset", ["name": name]) }
+
+    func memory(name: String) async throws -> [Fact] {
+        try JSONDecoder().decode([Fact].self, from: try await get("/memory?name=\(name)"))
+    }
+
+    func forget(name: String, id: Int) async throws {
+        _ = try await post("/forget", ["name": name, "id": id])
+    }
+
+    func forgetAll(name: String) async throws {
+        _ = try await post("/forget", ["name": name, "all": true])
+    }
 
     func getSettings(name: String) async throws -> AISettings {
         try JSONDecoder().decode(AISettings.self, from: try await get("/settings?name=\(name)"))

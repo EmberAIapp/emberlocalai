@@ -16,6 +16,13 @@ rm -rf "$APP" ANEForge.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/"
 
+# Localizations — copy every <lang>.lproj/Localizable.strings into the app's main
+# bundle so SwiftUI's Text(LocalizedStringKey) resolves the user's system language.
+if compgen -G "Resources/*.lproj" > /dev/null; then
+  cp -R Resources/*.lproj "$APP/Contents/Resources/"
+  echo "localizations: $(ls -d Resources/*.lproj | xargs -n1 basename | tr '\n' ' ')"
+fi
+
 # The real Swift binary becomes a helper; a launcher shim sets engine env vars
 # so a double-click finds the dev engine. (Replace with embedded runtime for release.)
 cp .build/release/ANEForge "$APP/Contents/MacOS/Ember.bin"

@@ -155,6 +155,19 @@ def make_handler(engine: Engine):
                         PersonalModel(b["name"]).delete(confirm=True)
                     engine.reset(b["name"])
                     return self._send(200, {"ok": True})
+                if u.path == "/rename":
+                    old = b["name"]; new = (b.get("new") or "").strip()
+                    if not new:
+                        return self._send(400, {"error": "nom vide"})
+                    src = MODELS_DIR / old; dst = MODELS_DIR / new
+                    if not src.exists():
+                        return self._send(404, {"error": "introuvable"})
+                    if dst.exists():
+                        return self._send(409, {"error": "ce nom est déjà pris"})
+                    import shutil
+                    shutil.move(str(src), str(dst))   # moves config, settings.json, memory.db, versions
+                    engine.reset(old)
+                    return self._send(200, {"ok": True})
                 if u.path == "/chat":
                     if not engine.ready:
                         return self._send(503, {"error": "model loading"})
