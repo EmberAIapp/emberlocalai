@@ -135,6 +135,48 @@ actor Engine {
         }
     }
 
+    /// Mode Her — stream the agent's events (plan, tool, observation, gate, done) as NDJSON.
+    nonisolated func agentStream(name: String, task: String) -> AsyncThrowingStream<AgentEvent, Error> {
+        let url = URL(string: "http://127.0.0.1:\(port)/agent_stream")!
+        return AsyncThrowingStream { continuation in
+            let job = Task {
+                do {
+                    var req = URLRequest(url: url); req.httpMethod = "POST"
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "task": task])
+                    let (bytes, _) = try await URLSession.shared.bytes(for: req)
+                    for try await line in bytes.lines {
+                        guard let d = line.data(using: .utf8),
+                              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                              let type = o["type"] as? String else { continue }
+                        var e = AgentEvent(type: type)
+                        e.text = (o["text"] as? String) ?? (o["summary"] as? String) ?? ""
+                        e.tool = (o["tool"] as? String) ?? (o["name"] as? String) ?? ""
+                        e.scope = (o["scope"] as? String) ?? ""
+                        e.denied = (o["denied"] as? Bool) ?? false
+                        if type == "session" { e.detail = (o["id"] as? String) ?? "" }
+                        if let args = o["args"] as? [String: Any] {
+                            e.detail = (args["filename"] as? String) ?? (args["query"] as? String)
+                                     ?? (args["path"] as? String) ?? e.detail
+                        }
+                        continuation.yield(e)
+                    }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { @Sendable _ in job.cancel() }
+        }
+    }
+
+    /// Resume a paused agent after a permission gate (allow / deny).
+    nonisolated func agentResume(session: String, allow: Bool) async {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/agent_resume") else { return }
+        var req = URLRequest(url: url); req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["session": session, "allow": allow])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     func chat(name: String, prompt: String) async throws -> ChatReply {
         try JSONDecoder().decode(ChatReply.self, from: try await post("/chat", ["name": name, "prompt": prompt]))
     }

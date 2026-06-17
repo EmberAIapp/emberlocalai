@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import re
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -95,6 +97,32 @@ def _grounded(fact: str, source: str) -> bool:
     sl = source.lower()
     hits = sum(1 for w in fw if w in sl)
     return hits / len(fw) >= 0.5
+
+
+# --- Agent sessions (Mode Her): stream events + human-in-the-loop permission gates ---
+_AGENT_SESSIONS: dict = {}
+
+
+class _AgentSession:
+    def __init__(self):
+        self.q: queue.Queue = queue.Queue()
+        self._gate = threading.Event()
+        self._decision = False
+
+    def emit(self, event: dict):
+        self.q.put(event)
+
+    def ask_permission(self, tool: str, args: dict, scope: str) -> bool:
+        """Emit a gate event, then block until the user resumes (via /agent_resume)."""
+        self.emit({"type": "gate", "tool": tool, "args": args, "scope": scope})
+        self._gate.clear()
+        if not self._gate.wait(timeout=300):   # 5 min to decide, else deny
+            return False
+        return self._decision
+
+    def resume(self, allow: bool):
+        self._decision = allow
+        self._gate.set()
 
 
 class Engine:
@@ -316,6 +344,45 @@ def make_handler(engine: Engine):
                     except Exception:
                         pass
                     return
+                if u.path == "/agent_stream":
+                    from aneforge.agent import run_agent, available
+                    if not available():
+                        return self._send(503, {"error": "agent indisponible (clé DeepSeek absente)"})
+                    name = b["name"]
+                    task = b.get("task") or b.get("prompt") or ""
+                    sid = b.get("session") or uuid.uuid4().hex
+                    sess = _AgentSession()
+                    _AGENT_SESSIONS[sid] = sess
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    self.wfile.write((json.dumps({"type": "session", "id": sid}) + "\n").encode())
+                    self.wfile.flush()
+
+                    def _worker():
+                        try:
+                            run_agent(name, task, sess.emit, sess.ask_permission)
+                        except Exception as e:
+                            sess.emit({"type": "error", "text": str(e)})
+                        sess.emit({"type": "_end"})
+                    threading.Thread(target=_worker, daemon=True).start()
+                    try:
+                        while True:
+                            e = sess.q.get()
+                            if e.get("type") == "_end":
+                                break
+                            self.wfile.write((json.dumps(e, ensure_ascii=False) + "\n").encode())
+                            self.wfile.flush()
+                    except Exception:
+                        pass
+                    _AGENT_SESSIONS.pop(sid, None)
+                    return
+                if u.path == "/agent_resume":
+                    sess = _AGENT_SESSIONS.get(b.get("session"))
+                    if sess:
+                        sess.resume(bool(b.get("allow")))
+                    return self._send(200, {"ok": True})
                 if u.path == "/forget":
                     s = store_for_model(b["name"])
                     removed = s.clear() if b.get("all") else (1 if s.delete(int(b["id"])) else 0)

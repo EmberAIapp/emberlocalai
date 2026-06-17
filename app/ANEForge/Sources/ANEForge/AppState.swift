@@ -8,6 +8,17 @@ struct ChatMessage: Identifiable, Hashable {
     var text: String
 }
 
+/// One event from the real agent stream (Mode Her).
+struct AgentEvent: Identifiable, Hashable {
+    let id = UUID()
+    let type: String            // plan | tool | observation | gate | message | done | error | session
+    var text: String = ""
+    var tool: String = ""
+    var scope: String = ""
+    var detail: String = ""     // filename/query/path for tools, or the session id
+    var denied: Bool = false
+}
+
 /// Which primary screen is showing in the main content area.
 enum MainView { case home, ingest, memory, settings }
 
@@ -47,6 +58,13 @@ final class AppState: ObservableObject {
     @Published var agentGate: Gate = .none
     private var agentTicker: Task<Void, Never>?
 
+    // Mode Her — the REAL agent (DeepSeek brain + local tools). Drives the live panel.
+    @Published var agentEvents: [AgentEvent] = []
+    @Published var agentBusy = false
+    @Published var agentPendingGate: AgentEvent?       // non-nil while waiting on a permission
+    private var agentSession: String?
+    private var agentTask: Task<Void, Never>?
+
     var onboardOpen: Bool { onboardStep > 0 }
 
     private let engine: Engine
@@ -58,6 +76,7 @@ final class AppState: ObservableObject {
     /// The orb's living state, derived from what Ember is actually doing.
     var orbMode: OrbMode {
         if isLearning { return .apprend }
+        if agentBusy { return .reflexion }   // Mode Her agent working — §3 "ça calcule"
         if isBusy { return .reflexion }
         if talking { return .parle }
         return .repos
@@ -138,7 +157,42 @@ final class AppState: ObservableObject {
     // MARK: - Navigation
 
     func go(_ v: MainView) { view = v; switcherOpen = false }
-    func enterHer() { isHer = true; switcherOpen = false; if !agentRunning { startAgent() } }
+    func enterHer() {
+        isHer = true; switcherOpen = false
+        agentEvents = []; agentPendingGate = nil; agentBusy = false
+        if !agentRunning { startAgent() }
+    }
+
+    // MARK: - Real agent (Mode Her): DeepSeek brain + local tools, live stream + permission gates
+    func runAgentTask(_ task: String) {
+        guard let name = selected?.name else { errorText = "Choisis (ou crée) d'abord une IA."; return }
+        let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, !agentBusy else { return }
+        agentEvents = []; agentPendingGate = nil; agentSession = nil; agentBusy = true
+        agentTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                for try await e in engine.agentStream(name: name, task: t) {
+                    if e.type == "session" { self.agentSession = e.detail; continue }
+                    if e.type == "gate" { self.agentPendingGate = e }
+                    self.agentEvents.append(e)
+                    if e.type == "done" || e.type == "error" { break }
+                }
+            } catch {
+                self.agentEvents.append(AgentEvent(type: "error", text: error.localizedDescription))
+            }
+            self.agentPendingGate = nil
+            self.agentBusy = false
+        }
+    }
+
+    func resolveAgentGate(_ allow: Bool) {
+        guard let s = agentSession else { return }
+        agentPendingGate = nil
+        Task { await engine.agentResume(session: s, allow: allow) }
+    }
+
+    func stopAgentTask() { agentTask?.cancel(); agentBusy = false; agentPendingGate = nil }
     func exitHer() { isHer = false }
 
     // MARK: - Le fil (agent orchestration)
