@@ -158,7 +158,10 @@ actor Engine {
                         if let args = o["args"] as? [String: Any] {
                             e.detail = (args["filename"] as? String) ?? (args["query"] as? String)
                                      ?? (args["path"] as? String) ?? (args["name"] as? String)
-                                     ?? (args["url"] as? String) ?? (args["pattern"] as? String) ?? e.detail
+                                     ?? (args["url"] as? String) ?? (args["pattern"] as? String)
+                                     ?? (args["title"] as? String) ?? (args["text"] as? String)
+                                     ?? (args["action"] as? String) ?? (args["subject"] as? String)
+                                     ?? (args["src"] as? String) ?? e.detail
                         }
                         continuation.yield(e)
                     }

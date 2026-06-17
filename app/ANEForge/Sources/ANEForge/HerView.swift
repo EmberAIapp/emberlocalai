@@ -398,6 +398,15 @@ private struct OverviewCard: View {
         case "read_notes":       return "Notes"
         case "read_reminders":   return "Rappels"
         case "read_calendar":    return "Agenda"
+        case "write_clipboard":  return "Presse-papiers"
+        case "create_note":      return "Note"
+        case "create_reminder":  return "Rappel"
+        case "create_event":     return "Événement"
+        case "move_file":        return "Déplacement"
+        case "copy_file":        return "Copie"
+        case "music_control":    return "Musique"
+        case "draft_mail":       return "Brouillon mail"
+        case "run_shortcut":     return "Raccourci"
         default:                 return tool.isEmpty ? "Étape" : tool
         }
     }
@@ -436,9 +445,16 @@ private struct HerEventRow: View {
         case "search_text":                  return "text.magnifyingglass"
         case "read_clipboard":               return "doc.on.clipboard"
         case "notify":                       return "bell"
-        case "read_notes":                   return "note.text"
-        case "read_reminders":               return "checklist"
+        case "read_notes", "create_note":    return "note.text"
+        case "read_reminders", "create_reminder": return "checklist"
         case "read_calendar":                return "calendar"
+        case "create_event":                 return "calendar.badge.plus"
+        case "write_clipboard":              return "doc.on.clipboard"
+        case "move_file":                    return "arrow.right.doc.on.clipboard"
+        case "copy_file":                    return "doc.on.doc"
+        case "music_control":                return "music.note"
+        case "draft_mail":                   return "envelope"
+        case "run_shortcut":                 return "bolt"
         default:                             return "gearshape"
         }
     }
@@ -459,6 +475,15 @@ private struct HerEventRow: View {
         case "read_notes":      return "Lit tes notes"
         case "read_reminders":  return "Lit tes rappels"
         case "read_calendar":   return "Lit ton agenda"
+        case "write_clipboard": return "Copie dans le presse-papiers"
+        case "create_note":     return "Crée une note"
+        case "create_reminder": return "Crée un rappel"
+        case "create_event":    return "Crée un événement"
+        case "move_file":       return "Déplace un fichier"
+        case "copy_file":       return "Copie un fichier"
+        case "music_control":   return "Contrôle la musique"
+        case "draft_mail":      return "Prépare un brouillon de mail"
+        case "run_shortcut":    return "Lance un raccourci"
         default:                return event.tool
         }
     }
@@ -491,6 +516,15 @@ private struct HerEventRow: View {
         case "read_notes":       return "Lire tes notes"
         case "read_reminders":   return "Lire tes rappels"
         case "read_calendar":    return "Lire ton agenda du jour"
+        case "write_clipboard":  return "Copier du texte dans le presse-papiers"
+        case "create_note":      return "Créer la note « \(event.detail) »"
+        case "create_reminder":  return "Créer le rappel « \(event.detail) »"
+        case "create_event":     return "Créer l'événement « \(event.detail) »"
+        case "move_file":        return "Déplacer « \(event.detail) »"
+        case "copy_file":        return "Copier un fichier"
+        case "music_control":    return "Contrôler la musique (\(event.detail))"
+        case "draft_mail":       return "Préparer un brouillon de mail « \(event.detail) » (non envoyé)"
+        case "run_shortcut":     return "Lancer le raccourci « \(event.detail) »"
         default:                 return event.tool
         }
     }

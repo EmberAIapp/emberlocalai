@@ -38,6 +38,11 @@ def _osa(script, timeout=20):
     return _run(["osascript", "-e", script], timeout)
 
 
+def _esc(s):
+    """Escape a string for embedding in an AppleScript double-quoted literal."""
+    return (s or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
+
+
 def _launch(app, settle=1.4):
     """Launch/focus an app and wait briefly. osascript→app fails with -600 if the app isn't
     running, so read/control tools call this first. Returns (ok, message)."""
@@ -133,6 +138,41 @@ TOOLS = [
     {"type": "function", "function": {"name": "read_calendar",
      "description": "List today's calendar events.",
      "parameters": {"type": "object", "properties": {}}}},
+    # --- P2 ecosystem (write/create — reversible, each gated by permission) ---
+    {"type": "function", "function": {"name": "write_clipboard",
+     "description": "Put text into the clipboard.",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {"name": "create_note",
+     "description": "Create a note in Notes.",
+     "parameters": {"type": "object", "properties": {"title": {"type": "string"},
+                    "body": {"type": "string"}}, "required": ["title", "body"]}}},
+    {"type": "function", "function": {"name": "create_reminder",
+     "description": "Create a reminder in Reminders.",
+     "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {"name": "create_event",
+     "description": "Create a calendar event. start as 'YYYY-MM-DD HH:MM'.",
+     "parameters": {"type": "object", "properties": {"title": {"type": "string"},
+                    "start": {"type": "string"}, "duration_min": {"type": "integer"}},
+                    "required": ["title", "start"]}}},
+    {"type": "function", "function": {"name": "move_file",
+     "description": "Move or rename a file.",
+     "parameters": {"type": "object", "properties": {"src": {"type": "string"},
+                    "dst": {"type": "string"}}, "required": ["src", "dst"]}}},
+    {"type": "function", "function": {"name": "copy_file",
+     "description": "Copy a file.",
+     "parameters": {"type": "object", "properties": {"src": {"type": "string"},
+                    "dst": {"type": "string"}}, "required": ["src", "dst"]}}},
+    {"type": "function", "function": {"name": "music_control",
+     "description": "Control Music: play, pause, next, previous, stop.",
+     "parameters": {"type": "object", "properties": {"action": {"type": "string"}}, "required": ["action"]}}},
+    {"type": "function", "function": {"name": "draft_mail",
+     "description": "Compose a DRAFT email (opens it, never sends).",
+     "parameters": {"type": "object", "properties": {"to": {"type": "string"}, "subject": {"type": "string"},
+                    "body": {"type": "string"}}, "required": ["subject", "body"]}}},
+    {"type": "function", "function": {"name": "run_shortcut",
+     "description": "Run an Apple Shortcut by name.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"},
+                    "input": {"type": "string"}}, "required": ["name"]}}},
     {"type": "function", "function": {"name": "finish",
      "description": "Finish the task with a short summary for the user.",
      "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}}},
@@ -144,10 +184,14 @@ SENSITIVE = {
     "open_app": "Apps", "open_url": "Apps", "reveal_in_finder": "Fichiers",
     "spotlight_search": "Fichiers", "search_text": "Fichiers",
     "read_notes": "Notes", "read_reminders": "Rappels", "read_calendar": "Agenda",
+    # P2 — write/create (reversible), each gated:
+    "write_clipboard": "Presse-papiers", "create_note": "Notes", "create_reminder": "Rappels",
+    "create_event": "Agenda", "move_file": "Fichiers", "copy_file": "Fichiers",
+    "music_control": "Musique", "draft_mail": "Mail", "run_shortcut": "Raccourcis",
 }
-# Scopes that must NEVER be auto-allowed / "remembered" — always per-action confirm (future P3:
-# sending mail/messages, calendar invites, trashing files, on-screen control).
-TIER3_SCOPES = {"Mail-envoi", "Messages-envoi", "Agenda-invitation", "Fichiers-suppr", "Écran"}
+# Scopes that must NEVER be auto-allowed / "remembered" — always per-action confirm. run_shortcut
+# can do anything (it runs a user shortcut), so it's Tier-3 too. (P3 send/delete/screen come later.)
+TIER3_SCOPES = {"Raccourcis", "Mail-envoi", "Messages-envoi", "Agenda-invitation", "Fichiers-suppr", "Écran"}
 
 
 def _exec(name, args, ia):
@@ -247,6 +291,95 @@ def _exec(name, args, ia):
         out = _osa(script, 30)
         items = [x.strip() for x in out.split(",") if x.strip()][:30]
         return "Aujourd'hui : " + " · ".join(items) if items else "Rien au calendrier aujourd'hui."
+
+    # --- P2 ecosystem (write/create, reversible) ---
+    if name == "write_clipboard":
+        try:
+            subprocess.run(["pbcopy"], input=args.get("text", ""), text=True, timeout=5)
+        except Exception as e:
+            return f"Erreur : {e}"
+        return "Copié dans le presse-papiers."
+    if name == "create_note":
+        ok, msg = _launch("Notes")
+        if not ok:
+            return msg
+        _osa(f'tell application "Notes" to make new note with properties '
+             f'{{name:"{_esc(args.get("title","Note"))}", body:"{_esc(args.get("body",""))}"}}', 20)
+        return f"Note créée : {args.get('title','Note')}"
+    if name == "create_reminder":
+        ok, msg = _launch("Reminders")
+        if not ok:
+            return msg
+        _osa(f'tell application "Reminders" to make new reminder with properties '
+             f'{{name:"{_esc(args.get("text","Rappel"))}"}}', 20)
+        return f"Rappel créé : {args.get('text','')}"
+    if name == "create_event":
+        ok, msg = _launch("Calendar")
+        if not ok:
+            return msg
+        from datetime import datetime
+        try:
+            dt = datetime.fromisoformat(args.get("start", "").replace("/", "-").strip())
+        except Exception:
+            return "Date invalide (attendu « AAAA-MM-JJ HH:MM »)."
+        dur = int(args.get("duration_min") or 60)
+        script = (f'set d to current date\nset year of d to {dt.year}\nset month of d to {dt.month}\n'
+                  f'set day of d to {dt.day}\nset hours of d to {dt.hour}\nset minutes of d to {dt.minute}\n'
+                  f'set seconds of d to 0\n'
+                  f'tell application "Calendar" to tell calendar 1 to make new event with properties '
+                  f'{{summary:"{_esc(args.get("title","Événement"))}", start date:d, end date:(d + {dur} * 60)}}')
+        out = _osa(script, 25)
+        return f"Événement créé : {args.get('title','')} le {dt:%d/%m %H:%M}" if "error" not in out.lower() else f"Échec calendrier : {out[:120]}"
+    if name == "move_file":
+        import shutil
+        src = str(Path(args.get("src", "")).expanduser()); dst = str(Path(args.get("dst", "")).expanduser())
+        try:
+            shutil.move(src, dst)
+        except Exception as e:
+            return f"Déplacement impossible : {e}"
+        return f"Déplacé : {src} → {dst}"
+    if name == "copy_file":
+        import shutil
+        src = str(Path(args.get("src", "")).expanduser()); dst = str(Path(args.get("dst", "")).expanduser())
+        try:
+            shutil.copy2(src, dst)
+        except Exception as e:
+            return f"Copie impossible : {e}"
+        return f"Copié : {src} → {dst}"
+    if name == "music_control":
+        ok, msg = _launch("Music", settle=0.4)
+        if not ok:
+            return msg
+        act = {"play": "play", "pause": "pause", "next": "next track",
+               "previous": "previous track", "stop": "stop"}.get(args.get("action", "play"), "play")
+        _osa(f'tell application "Music" to {act}', 10)
+        return f"Musique : {args.get('action','play')}"
+    if name == "draft_mail":
+        ok, msg = _launch("Mail")
+        if not ok:
+            return msg
+        to = _esc(args.get("to", "")); subj = _esc(args.get("subject", "")); body = _esc(args.get("body", ""))
+        script = ('tell application "Mail"\n'
+                  f'set m to make new outgoing message with properties {{subject:"{subj}", content:"{body}", visible:true}}\n'
+                  + (f'tell m to make new to recipient with properties {{address:"{to}"}}\n' if to else '')
+                  + 'end tell')
+        _osa(script, 20)
+        return f"Brouillon de mail prêt{(' pour ' + args.get('to','')) if args.get('to') else ''} (NON envoyé)."
+    if name == "run_shortcut":
+        sc = (args.get("name") or "").strip()
+        if not sc:
+            return "Nom du raccourci manquant."
+        cmd = ["shortcuts", "run", sc]
+        inp = args.get("input")
+        if inp:
+            cmd += ["-i", "-"]
+        try:
+            r = subprocess.run(cmd, input=(inp or None), capture_output=True, text=True, timeout=40)
+        except Exception as e:
+            return f"Erreur : {e}"
+        if r.returncode != 0:
+            return f"Raccourci « {sc} » a échoué : {(r.stderr or '').strip()[:140] or 'introuvable'}"
+        return f"Raccourci « {sc} » exécuté. {(r.stdout or '').strip()[:140]}"
     return "Outil inconnu."
 
 
