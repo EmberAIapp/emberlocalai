@@ -209,6 +209,19 @@ actor Engine {
 
     func reset(name: String) async { _ = try? await post("/reset", ["name": name]) }
 
+    /// Current engine config from /health: loaded model id, model currently (re)loading, key set.
+    func config() async -> (model: String, loading: String?, hasKey: Bool) {
+        guard let d = try? await get("/health"),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return ("", nil, false) }
+        return ((j["model"] as? String) ?? "", j["loading"] as? String, (j["has_key"] as? Bool) ?? false)
+    }
+
+    /// Change the local model directly (Réglages). Reloads it server-side (downloads if needed).
+    func setModel(_ id: String) async { _ = try? await post("/set_model", ["model": id]) }
+
+    /// Set/clear the DeepSeek API key (work-agent). Never hard-coded.
+    func setKey(_ key: String) async { _ = try? await post("/set_key", ["key": key]) }
+
     func memory(name: String) async throws -> [Fact] {
         try JSONDecoder().decode([Fact].self, from: try await get("/memory?name=\(name)"))
     }

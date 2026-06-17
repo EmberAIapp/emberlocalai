@@ -7,6 +7,7 @@ struct SettingsScreen: View {
     @State private var maxTokens: Double = 96
     @State private var temperature: Double = 0.7
     @State private var profileName: String = ""
+    @State private var apiKey: String = ""
     @State private var showDelete = false
 
     var body: some View {
@@ -32,6 +33,11 @@ struct SettingsScreen: View {
                 SectionLabel("Modèle de base")
                     .padding(.bottom, 13)
                 modelGrid
+
+                // CLÉ API — for the Mode Her work-agent (DeepSeek). Stored locally only, editable.
+                SectionLabel("Clé API · agent de travail (cloud)")
+                    .padding(.top, 30).padding(.bottom, 13)
+                apiKeyRow
 
                 // PERSONA · COMMENT ELLE SE COMPORTE
                 SectionLabel("Persona · comment elle se comporte")
@@ -63,7 +69,7 @@ struct SettingsScreen: View {
             .padding(.horizontal, 48)
             .padding(.bottom, 40)
         }
-        .task { await reload() }
+        .task { await reload(); await state.refreshConfig() }
         .onChange(of: state.selected?.name) {
             Task { await reload() }
         }
@@ -140,15 +146,57 @@ struct SettingsScreen: View {
     // MARK: 1) Model catalog — grid-template-columns: repeat(3,1fr); gap 14
 
     private var modelGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
-                            GridItem(.flexible(), spacing: 14),
-                            GridItem(.flexible(), spacing: 14)],
-                  spacing: 14) {
-            ForEach(Array(DesignData.modelCatalog.enumerated()), id: \.offset) { idx, md in
-                SettingsModelCard(md: md, selected: idx == state.selectedModelIndex) {
-                    state.selectedModelIndex = idx
+        VStack(alignment: .leading, spacing: 12) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
+                                GridItem(.flexible(), spacing: 14),
+                                GridItem(.flexible(), spacing: 14)],
+                      spacing: 14) {
+                ForEach(DesignData.modelCatalog) { md in
+                    SettingsModelCard(md: md,
+                                      selected: state.currentModelId == md.modelId,
+                                      loading: state.modelLoading == md.modelId) {
+                        state.setModel(md.modelId)     // REAL switch — reloads the model
+                    }
                 }
             }
+            if let loading = state.modelLoading {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Chargement du modèle… (téléchargement au 1er usage) — \(loading.components(separatedBy: "/").last ?? loading)")
+                        .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9a8d84))
+                }
+            } else {
+                Text("Modèle actif : \(state.currentModelId.components(separatedBy: "/").last ?? "—") · 100% local · change quand tu veux")
+                    .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x7fa98a))
+            }
+        }
+    }
+
+    private var apiKeyRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: state.hasKey ? "key.fill" : "key")
+                    .foregroundStyle(state.hasKey ? Color(hexv: 0x7fd095) : Color(hexv: 0x9a8d84))
+                SecureField(state.hasKey ? "•••• clé enregistrée (laisse vide pour garder)" : "Colle ta clé DeepSeek (sk-…)",
+                            text: $apiKey)
+                    .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
+                Button("Enregistrer") { state.setKey(apiKey); apiKey = "" }
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(apiKey.trimmingCharacters(in: .whitespaces).isEmpty ? Color(hexv: 0x6a5e57) : Color(hexv: 0xff7a3a))
+                    .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                if state.hasKey {
+                    Button("Effacer") { state.setKey("") }
+                        .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Color(hexv: 0x9a8d84))
+                }
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color(hexv: 0xff965a).opacity(0.18), lineWidth: 1))
+            Text(state.hasKey
+                 ? "Clé stockée localement (~/.aneforge) — l'agent de travail du Mode Her est actif."
+                 : "Sans clé, l'agent de travail (tâches) est désactivé. La conversation + la voix marchent sans clé.")
+                .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9a8d84))
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -314,6 +362,7 @@ private struct FlowChips<Content: View>: View {
 private struct SettingsModelCard: View {
     let md: DesignData.ModelChoice
     let selected: Bool
+    var loading: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -325,7 +374,7 @@ private struct SettingsModelCard: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color(hexv: 0xf0ddcf))
                     Spacer(minLength: 8)
-                    radio
+                    if loading { ProgressView().controlSize(.small) } else { radio }
                 }
                 // desc 12.5px #9a8d84 margin-top 6 line-height 1.4
                 Text(LocalizedStringKey(md.desc))

@@ -172,10 +172,13 @@ class _AgentSession:
 class Engine:
     """Holds the MLX model (loaded once) + per-model conversation history."""
 
+    _MODEL_FILE = MODELS_DIR.parent / "model.txt"   # ~/.aneforge/model.txt — chosen local model
+
     def __init__(self, model_id: str | None = None):
         self.mlx = None
         self.model_id = model_id
         self.ready = False
+        self.loading = None        # model id currently (re)loading, for the UI
         self._history: dict[str, list] = {}
         self._lock = threading.Lock()
         self._last_activity = 0.0
@@ -183,13 +186,33 @@ class Engine:
 
     def warmup(self):
         from aneforge.mlx_chat import MLXChat, DEFAULT_MODEL
+        if not self.model_id and self._MODEL_FILE.exists():
+            self.model_id = self._MODEL_FILE.read_text().strip() or None   # remember the user's choice
         self.model_id = self.model_id or DEFAULT_MODEL
         self.mlx = MLXChat(self.model_id)
         self.ready = True
-        # §4.D — keep learning when idle: consolidate the conversation into memory + refresh a
-        # personal profile. (Learning into MEMORY, not weight retraining — §9.A: on-the-fly
-        # fine-tuning collapses a 1.5B model.)
         threading.Thread(target=self._idle_loop, daemon=True).start()
+
+    def set_model(self, model_id: str):
+        """Switch the local model the user can change directly (Réglages). Downloads if needed;
+        the old model keeps serving until the new one is loaded, then we swap atomically."""
+        def _load():
+            try:
+                from aneforge.mlx_chat import MLXChat
+                m = MLXChat(model_id)                      # may download (minutes); old model still serves
+                with self._lock:
+                    self.mlx = m
+                    self.model_id = model_id
+                self._MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
+                self._MODEL_FILE.write_text(model_id)
+            except Exception as e:
+                print(f"[ember-daemon] set_model FAILED ({model_id}): {e}", flush=True)
+            finally:
+                self.loading = None
+        if model_id == self.model_id and self.mlx is not None:
+            return
+        self.loading = model_id
+        threading.Thread(target=_load, daemon=True).start()
 
     def _touch(self):
         self._last_activity = time.time()
@@ -417,7 +440,9 @@ def make_handler(engine: Engine):
         def do_GET(self):
             u = urlparse(self.path)
             if u.path == "/health":
-                return self._send(200, {"ok": True, "model": engine.model_id, "ready": engine.ready})
+                from aneforge.agent import available as _agent_available
+                return self._send(200, {"ok": True, "model": engine.model_id, "ready": engine.ready,
+                                        "loading": engine.loading, "has_key": _agent_available()})
             if u.path == "/models":
                 return self._send(200, [
                     {"name": m["name"], "base": m["base_model"], "version": m["version"],
@@ -575,6 +600,20 @@ def make_handler(engine: Engine):
                 if u.path == "/settings":
                     _save_settings(b["name"], b.get("persona", ""), int(b.get("max_tokens", 220)))
                     return self._send(200, {"ok": True})
+                if u.path == "/set_model":
+                    # change the LOCAL model directly (Réglages) — reloads it (downloads if needed)
+                    engine.set_model((b.get("model") or "").strip())
+                    return self._send(200, {"ok": True, "loading": engine.loading})
+                if u.path == "/set_key":
+                    # set/clear the DeepSeek API key for the Mode Her work-agent (never hard-coded)
+                    key = (b.get("key") or "").strip()
+                    p = MODELS_DIR.parent / "deepseek.key"
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    if key:
+                        p.write_text(key)
+                    elif p.exists():
+                        p.unlink()
+                    return self._send(200, {"ok": True, "has_key": bool(key)})
                 return self._send(404, {"error": "not found"})
             except Exception as e:
                 return self._send(500, {"error": str(e)})

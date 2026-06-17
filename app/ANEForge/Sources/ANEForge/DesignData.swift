@@ -66,12 +66,16 @@ enum DesignData {
         let desc: String
         let ram: String
         let speed: String
+        var modelId: String = ""      // REAL MLX model id — switching actually reloads this model
     }
 
     static let modelCatalog: [ModelChoice] = [
-        .init(name: "Léger", desc: "SmolLM2 — Macs 8 Go, ultra rapide.", ram: "8 Go", speed: "rapide"),
-        .init(name: "Équilibré", desc: "Qwen2.5-1.5B — fluide & multilingue. Recommandé.", ram: "16 Go", speed: "56 tok/s"),
-        .init(name: "Puissant", desc: "Qwen2.5-3B — réponses plus riches.", ram: "24 Go+", speed: "34 tok/s"),
+        .init(name: "Léger", desc: "Qwen2.5 0.5B — rapide, petites configs.", ram: "8 Go", speed: "rapide",
+              modelId: "mlx-community/Qwen2.5-0.5B-Instruct-4bit"),
+        .init(name: "Équilibré", desc: "Qwen2.5 1.5B — fluide & multilingue. Recommandé.", ram: "16 Go", speed: "56 tok/s",
+              modelId: "mlx-community/Qwen2.5-1.5B-Instruct-4bit"),
+        .init(name: "Puissant", desc: "Qwen2.5 3B — réponses plus riches.", ram: "24 Go+", speed: "34 tok/s",
+              modelId: "mlx-community/Qwen2.5-3B-Instruct-4bit"),
     ]
 
     static let personaOptions = ["Calme", "Vif", "Professionnel", "Chaleureux"]

@@ -61,6 +61,34 @@ final class AppState: ObservableObject {
     @Published var personaSel = "Calme"
     @Published var permissions = DesignData.defaultPermissions
 
+    // Engine config (real): which local model is loaded / (re)loading, and whether the API key is set.
+    @Published var currentModelId = ""
+    @Published var modelLoading: String? = nil
+    @Published var hasKey = false
+
+    func refreshConfig() async {
+        let c = await engine.config()
+        currentModelId = c.model; modelLoading = c.loading; hasKey = c.hasKey
+    }
+    /// Change the local model directly (Réglages) — reloads server-side, polled until ready.
+    func setModel(_ id: String) {
+        guard id != currentModelId, modelLoading == nil else { return }
+        modelLoading = id
+        Task {
+            await engine.setModel(id)
+            for _ in 0..<240 {                      // up to ~6 min (first download can be long)
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                let c = await engine.config()
+                currentModelId = c.model; modelLoading = c.loading
+                if c.loading == nil { break }
+            }
+            modelLoading = nil
+        }
+    }
+    func setKey(_ key: String) {
+        Task { await engine.setKey(key.trimmingCharacters(in: .whitespacesAndNewlines)); await refreshConfig() }
+    }
+
     // Le fil — local agent orchestration surface (roadmap; the UI is fully interactive)
     enum Gate { case none, pending, granted, denied }
     @Published var agentRunning = false
@@ -146,7 +174,8 @@ final class AppState: ObservableObject {
         // First run (no IA yet) → show the onboarding.
         if models.isEmpty { onboardStep = 1 }
         else if selected == nil { select(models.first) }
-        startAgentTicker()
+        await refreshConfig()                    // real model/key status for Réglages
+        // (the old illustrative "Le fil" café demo bar is no longer started — réel only)
     }
 
     func refresh() async {
@@ -216,7 +245,6 @@ final class AppState: ObservableObject {
         isHer = true; switcherOpen = false
         agentEvents = []; agentPendingGate = nil; agentBusy = false
         herConversation = []; herListening = false; herSpeaking = false; herSpeak = nil; voiceSession = false
-        if !agentRunning { startAgent() }
     }
 
     // MARK: - Mode Her conversation (§4.E): chat by default, auto-route to the work agent
@@ -339,7 +367,7 @@ final class AppState: ObservableObject {
     func toggleAgentPause() { agentPaused.toggle() }
     func toggleAgentExpand() { agentExpanded.toggle() }
     func stopAgent() { agentRunning = false; agentExpanded = false }
-    func startAgent() { agentRunning = true; agentPaused = false; agentExpanded = false; agentStep = 1; agentGate = .none }
+    func startAgent() { /* disabled — the illustrative "Le fil" café demo no longer runs (réel only) */ }
 
     // Derived state used by Le fil + Mode Her to render the orchestration.
     enum StepState { case done, doing, gate, pending, denied }
