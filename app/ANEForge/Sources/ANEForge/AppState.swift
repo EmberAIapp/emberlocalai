@@ -89,15 +89,6 @@ final class AppState: ObservableObject {
         Task { await engine.setKey(key.trimmingCharacters(in: .whitespacesAndNewlines)); await refreshConfig() }
     }
 
-    // Le fil — local agent orchestration surface (roadmap; the UI is fully interactive)
-    enum Gate { case none, pending, granted, denied }
-    @Published var agentRunning = false
-    @Published var agentPaused = false
-    @Published var agentExpanded = false
-    @Published var agentStep = 1            // index into DesignData.agentSteps
-    @Published var agentGate: Gate = .none
-    private var agentTicker: Task<Void, Never>?
-
     // Mode Her — the REAL agent (DeepSeek brain + local tools). Drives the live panel.
     @Published var agentEvents: [AgentEvent] = []
     @Published var agentBusy = false
@@ -365,74 +356,6 @@ final class AppState: ObservableObject {
     func stopAgentTask() { agentTask?.cancel(); agentBusy = false; agentPendingGate = nil }
     func exitHer() { isHer = false; voiceSession = false }
 
-    // MARK: - Le fil (agent orchestration)
-
-    /// Advance the demo orchestration: one step every 2.2 s unless paused or waiting at a gate.
-    private func startAgentTicker() {
-        agentTicker?.cancel()
-        agentTicker = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_200_000_000)
-                await MainActor.run { self?.tickAgent() }
-            }
-        }
-    }
-
-    private func tickAgent() {
-        let steps = DesignData.agentSteps
-        guard agentRunning, !agentPaused, agentStep < steps.count else { return }
-        if steps[agentStep].gate && agentGate == .pending { return }   // wait for the user
-        agentStep += 1
-        if agentStep < steps.count, steps[agentStep].gate,
-           agentGate != .granted, agentGate != .denied {
-            agentGate = .pending
-        }
-    }
-
-    func resolveGate(_ ok: Bool) {
-        agentGate = ok ? .granted : .denied
-        agentStep = min(DesignData.agentSteps.count, agentStep + 1)
-        agentPaused = false
-    }
-
-    func toggleAgentPause() { agentPaused.toggle() }
-    func toggleAgentExpand() { agentExpanded.toggle() }
-    func stopAgent() { agentRunning = false; agentExpanded = false }
-    func startAgent() { /* disabled — the illustrative "Le fil" café demo no longer runs (réel only) */ }
-
-    // Derived state used by Le fil + Mode Her to render the orchestration.
-    enum StepState { case done, doing, gate, pending, denied }
-
-    func agentStepState(_ i: Int) -> StepState {
-        let steps = DesignData.agentSteps
-        let st = steps[i]
-        if st.gate && agentGate == .denied { return .denied }
-        if i < agentStep { return .done }
-        if i == agentStep {
-            if st.gate && agentGate == .pending { return .gate }
-            if agentStep >= steps.count { return .pending }
-            return .doing
-        }
-        return .pending
-    }
-
-    var agentFinished: Bool { agentStep >= DesignData.agentSteps.count }
-    var agentAwaiting: Bool {
-        let steps = DesignData.agentSteps
-        return agentStep < steps.count && steps[agentStep].gate && agentGate == .pending
-    }
-    var agentWorking: Bool { agentRunning && !agentPaused && !agentAwaiting && !agentFinished }
-    var agentProgress: Double {
-        Double(min(DesignData.agentSteps.count, agentStep)) / Double(DesignData.agentSteps.count)
-    }
-    var agentBarText: String {
-        if agentPaused { return "En pause — reprends quand tu veux" }
-        if agentAwaiting { return "En attente de ton feu vert" }
-        if agentFinished { return "Terminé · ton dossier est prêt" }
-        let steps = DesignData.agentSteps
-        return agentStep < steps.count ? steps[agentStep].text + "…" : ""
-    }
-
     /// Read a user-selected/dropped file IN THE APP (which holds the access grant),
     /// stage it to a temp path the engine subprocess can read, then learn from it.
     /// This sidesteps macOS TCC: the engine never touches the original protected folder.
@@ -463,6 +386,27 @@ final class AppState: ObservableObject {
             await loadFacts(name)
         } catch {
             errorText = "Lecture du fichier impossible : \(error.localizedDescription)"
+        }
+    }
+
+    /// REAL Apple Notes connector (§4.A) — read the user's notes locally and learn facts from them.
+    func teachNotes() async {
+        guard let name = selected?.name else {
+            errorText = "Choisis (ou crée) d'abord une IA."; return
+        }
+        guard !isLearning else { return }
+        isLearning = true; trainingLog = []; defer { isLearning = false }
+        trainingLog.append("Lecture de tes notes Apple…")
+        do {
+            let r = try await engine.ingestNotes(name: name)
+            if r.total == 0 {
+                errorText = "Aucune note accessible — autorise Ember dans Réglages › Confidentialité › Automatisation › Notes."
+            } else {
+                trainingLog.append("✦ \(r.learned) fait(s) appris depuis \(r.notes) note(s) (sur \(r.total))")
+            }
+            await loadFacts(name)
+        } catch {
+            errorText = "Lecture des notes impossible : \(error.localizedDescription)"
         }
     }
 

@@ -591,6 +591,20 @@ def make_handler(engine: Engine):
                         return self._send(404, {"error": "IA introuvable"})
                     learned = engine.ingest(b["name"], b.get("text") or "")
                     return self._send(200, {"ok": True, "learned": learned})
+                if u.path == "/ingest_notes":
+                    # REAL Apple Notes connector (§4.A) — read the user's notes via AppleScript,
+                    # then run the same ingestion pipeline (text → facts). 100% local.
+                    if not engine.ready:
+                        return self._send(503, {"error": "model loading"})
+                    if not (MODELS_DIR / b["name"]).exists():
+                        return self._send(404, {"error": "IA introuvable"})
+                    from aneforge.agent import notes_corpus
+                    corpus, used, total = notes_corpus()
+                    if not corpus:
+                        return self._send(200, {"ok": True, "learned": 0, "notes": 0, "total": total,
+                                                "error": "Aucune note lisible — autorise l'accès à Notes."})
+                    learned = engine.ingest(b["name"], corpus)
+                    return self._send(200, {"ok": True, "learned": learned, "notes": used, "total": total})
                 if u.path == "/chat_stream":
                     if not engine.ready:
                         return self._send(503, {"error": "model loading"})

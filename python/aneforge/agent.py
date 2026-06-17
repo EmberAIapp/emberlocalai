@@ -63,6 +63,55 @@ def _read(p: Path):
         return None
 
 
+def notes_corpus(limit: int = 40, max_chars: int = 8000):
+    """Read the user's Apple Notes (title + body) as plain text, for REAL ingestion (§4.A
+    connecteurs locaux · lecture seule). Returns (corpus, used, total). Bodies are HTML →
+    tags stripped. Capped (count + chars) to keep ingestion snappy; honest about the cap."""
+    import re as _re
+    ok, _ = _launch("Notes")
+    if not ok:
+        return "", 0, 0
+    # Iterate by index with explicit delimiters (commas in note text break list parsing).
+    script = (
+        'tell application "Notes"\n'
+        '  set theNotes to notes\n'
+        '  set total to count of theNotes\n'
+        f'  set lim to {int(limit)}\n'
+        '  if lim > total then set lim to total\n'
+        '  set out to ""\n'
+        '  repeat with i from 1 to lim\n'
+        '    set t to item i of theNotes\n'
+        '    set out to out & (name of t) & "@@T@@" & (body of t) & "@@N@@"\n'
+        '  end repeat\n'
+        '  return (total as text) & "@@C@@" & out\n'
+        'end tell'
+    )
+    raw = _osa(script, timeout=45)
+    if not raw or raw.startswith("Erreur"):
+        return "", 0, 0
+    total_str, _, body = raw.partition("@@C@@")
+    try:
+        total = int(total_str.strip())
+    except Exception:
+        total = 0
+    parts, used = [], 0
+    for chunk in body.split("@@N@@"):
+        if not chunk.strip():
+            continue
+        title, _, html = chunk.partition("@@T@@")
+        txt = _re.sub(r"<[^>]+>", " ", html)        # strip HTML tags
+        txt = _re.sub(r"&[a-z]+;", " ", txt)        # crude entity strip
+        txt = _re.sub(r"\s+", " ", txt).strip()
+        block = (title.strip() + ". " + txt).strip(". ").strip()
+        if not block:
+            continue
+        parts.append(block)
+        used += 1
+        if sum(len(p) for p in parts) >= max_chars:
+            break
+    return "\n\n".join(parts)[:max_chars], used, total
+
+
 def api_key():
     return (os.environ.get("DEEPSEEK_API_KEY")
             or _read(Path.home() / ".aneforge" / "deepseek.key")

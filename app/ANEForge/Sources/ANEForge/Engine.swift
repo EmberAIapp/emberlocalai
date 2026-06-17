@@ -111,6 +111,15 @@ actor Engine {
         return (try? JSONDecoder().decode(R.self, from: data))?.learned ?? 0
     }
 
+    /// REAL Apple Notes ingestion: the daemon reads the user's notes and extracts facts.
+    /// Returns (learned facts, notes used, total notes).
+    func ingestNotes(name: String) async throws -> (learned: Int, notes: Int, total: Int) {
+        struct R: Decodable { let learned: Int; let notes: Int?; let total: Int? }
+        let data = try await post("/ingest_notes", ["name": name])
+        let r = try JSONDecoder().decode(R.self, from: data)
+        return (r.learned, r.notes ?? 0, r.total ?? 0)
+    }
+
     /// Token-by-token reply stream (§5.4). Yields text deltas as the model generates.
     nonisolated func chatStream(name: String, prompt: String) -> AsyncThrowingStream<String, Error> {
         let url = URL(string: "http://127.0.0.1:\(port)/chat_stream")!

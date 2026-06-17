@@ -14,36 +14,42 @@ struct IngestView: View {
                 dropzone
                     .padding(.top, 22)
 
-                // CONNECTEURS LOCAUX · LECTURE SEULE — margin:30px 0 14px
+                // CONNECTEURS LOCAUX · LECTURE SEULE — Apple Notes is REAL (reads & learns).
                 SectionLabel("Connecteurs locaux · lecture seule")
                     .padding(.top, 30)
                     .padding(.bottom, 14)
-                LazyVGrid(
-                    columns: [GridItem(.flexible(), spacing: 14),
-                              GridItem(.flexible(), spacing: 14),
-                              GridItem(.flexible(), spacing: 14)],
-                    spacing: 14
-                ) {
-                    ForEach(DesignData.connectors) { c in
-                        IngestConnectorCard(connector: c)
-                    }
-                }
-
-                // SOURCES APPRISES + learn button — margin:32px 0 14px
-                sourcesHeader
-                    .padding(.top, 32)
-                    .padding(.bottom, 14)
+                AppleNotesCard()
 
                 if state.isLearning {
                     progressPanel
-                        .padding(.bottom, 16)
+                        .padding(.top, 18)
                 }
 
-                sourcesList
+                learnedHint
+                    .padding(.top, 18)
             }
             .padding(.top, 34)
             .padding(.horizontal, 48)
             .padding(.bottom, 40)
+        }
+        // Keep the fact count fresh so the hint reflects reality.
+        .task(id: state.selected?.name) {
+            if let n = state.selected?.name { await state.loadFacts(n) }
+        }
+    }
+
+    // Honest pointer: learned facts live in Mémoire (no fake "sources" list).
+    private var learnedHint: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12))
+                .foregroundStyle(Color(hexv: 0x9fd9ad))
+            Text(state.facts.isEmpty
+                 ? "Ce qu'Ember apprend de tes données apparaît dans l'onglet Mémoire."
+                 : "Ember connaît \(state.facts.count) fait\(state.facts.count > 1 ? "s" : "") sur toi — vois l'onglet Mémoire.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color(hexv: 0x8a7d75))
+            Spacer(minLength: 0)
         }
     }
 
@@ -106,15 +112,6 @@ struct IngestView: View {
         isTargeted ? Color(hexv: 0xffa064).opacity(0.6) : Color(hexv: 0xffa064).opacity(0.35)
     }
 
-    // SOURCES APPRISES (left) + learn button (right), space-between
-    private var sourcesHeader: some View {
-        HStack(alignment: .center, spacing: 0) {
-            SectionLabel("Sources apprises")
-            Spacer()
-            LearnButton(ingesting: state.isLearning, action: openPicker)
-        }
-    }
-
     // Apprentissage panel — padding 16px 18px, radius 14, bg rgba(255,120,60,0.08), border rgba(255,150,90,0.2)
     private var progressPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -148,15 +145,6 @@ struct IngestView: View {
         )
     }
 
-    // sources list — flex column gap 9px
-    private var sourcesList: some View {
-        VStack(spacing: 9) {
-            ForEach(DesignData.sources(ingesting: state.isLearning)) { s in
-                IngestSourceRow(source: s)
-            }
-        }
-    }
-
     private func openPicker() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -178,33 +166,48 @@ struct IngestView: View {
     }
 }
 
-// MARK: - Learn button (learnBtnStyle)
-// font 12.5 / 700, padding 8px 16px, radius 20, color #1a0f0a, gradient 135deg #ffb877→#ff6024,
-// shadow 0 6px 18px -6px rgba(255,90,40,0.6). Ingesting → bg rgba(255,255,255,0.12), no shadow.
-private struct LearnButton: View {
-    let ingesting: Bool
-    var action: () -> Void
+// MARK: - Apple Notes connector (REAL — reads your notes and learns facts, §4.A)
+private struct AppleNotesCard: View {
+    @EnvironmentObject var state: AppState
+    @State private var hover = false
+
     var body: some View {
-        Button(action: action) {
-            Text(ingesting ? "Apprentissage…" : "✦ Apprendre (créer v4)")
-                .font(.system(size: 12.5, weight: .bold))
-                .foregroundStyle(ingesting ? Color(hexv: 0xc79a82) : Color(hexv: 0x1a0f0a))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background {
-                    if ingesting {
-                        Capsule().fill(Color.white.opacity(0.12))
-                    } else {
-                        Capsule().fill(LinearGradient(
-                            colors: [Color(hexv: 0xffb877), Color(hexv: 0xff6024)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing))
-                    }
+        Button { Task { await state.teachNotes() } } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(Color(hexv: 0xffd250).opacity(0.16))
+                    Text("🗒️").font(.system(size: 19))
                 }
-                .shadow(color: ingesting ? .clear : Color(hexv: 0xff5a28).opacity(0.6),
-                        radius: 9, y: 6)
+                .frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Apple Notes")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hexv: 0xecd9c9))
+                    Text("Lis tes notes et apprends-en des faits — 100% en local")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hexv: 0x8a7d75))
+                }
+                Spacer()
+                TagPill(
+                    text: state.isLearning ? "Lecture…" : "Apprendre mes notes",
+                    fg: Color(hexv: 0x9fd9ad),
+                    bg: Color(hexv: 0x5fd07a).opacity(0.12)
+                )
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(hover ? 0.06 : 0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color(hexv: 0x5fd07a).opacity(hover ? 0.30 : 0.12), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
-        .disabled(ingesting)
+        .disabled(state.isLearning)
+        .onHover { hover = $0 }
     }
 }
 
@@ -244,112 +247,3 @@ private struct IngestSubtitle: View {
     }
 }
 
-// MARK: - Connector card
-// padding 16, radius 16, bg rgba(255,255,255,0.04), border on→rgba(95,208,122,0.25)/off→rgba(255,255,255,0.07)
-private struct IngestConnectorCard: View {
-    let connector: Connector
-
-    private var borderColor: Color {
-        connector.connected ? Color(hexv: 0x5fd07a).opacity(0.25) : Color.white.opacity(0.07)
-    }
-
-    // pillStyle: font 10.5 / 600, padding 4px 10px, radius 10
-    private var pillFg: Color {
-        connector.connected ? Color(hexv: 0x9fd9ad) : Color(hexv: 0xc79a82)
-    }
-    private var pillBg: Color {
-        connector.connected
-            ? Color(hexv: 0x5fd07a).opacity(0.12)   // rgba(95,208,122,0.12)
-            : Color(hexv: 0xff8c46).opacity(0.12)   // rgba(255,140,70,0.12)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // header row: icon tile + pill, space-between
-            HStack(alignment: .center, spacing: 0) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(connector.iconBg)
-                    Text(connector.icon)
-                        .font(.system(size: 19))
-                }
-                .frame(width: 38, height: 38)
-                Spacer()
-                TagPill(
-                    text: connector.connected ? "Connecté" : "Connecter",
-                    fg: pillFg,
-                    bg: pillBg
-                )
-            }
-            // name — 15px / 600 #ecd9c9, margin-top:14px
-            Text(connector.name)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hexv: 0xecd9c9))
-                .padding(.top, 14)
-            // desc — 12px #8a7d75, margin-top:3px
-            Text(connector.desc)
-                .font(.system(size: 12))
-                .foregroundStyle(Color(hexv: 0x8a7d75))
-                .padding(.top, 3)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(borderColor, lineWidth: 1)
-        )
-    }
-}
-
-// MARK: - Learned source row
-// gap 14, padding 13px 16px, radius 13, bg rgba(255,255,255,0.035), border rgba(255,255,255,0.06)
-private struct IngestSourceRow: View {
-    let source: LearnedSource
-
-    // statusStyle: font 11 / 600, padding 4px 11px, radius 10
-    private var pillFg: Color {
-        source.ok ? Color(hexv: 0x9fd9ad) : Color(hexv: 0xc79a82)
-    }
-    private var pillBg: Color {
-        source.ok
-            ? Color(hexv: 0x5fd07a).opacity(0.10)   // rgba(95,208,122,0.1)
-            : Color(hexv: 0xff8c46).opacity(0.10)   // rgba(255,140,70,0.1)
-    }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            // icon tile — 34x34, radius 9, bg iconBg, font 15
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(source.iconBg)
-                Text(source.icon)
-                    .font(.system(size: 15))
-            }
-            .frame(width: 34, height: 34)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(source.name)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hexv: 0xecd9c9))
-                Text(source.meta)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Color(hexv: 0x8a7d75))
-            }
-            Spacer()
-            TagPill(text: source.status, fg: pillFg, bg: pillBg, fontSize: 11)
-        }
-        .padding(.vertical, 13)
-        .padding(.horizontal, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(Color.white.opacity(0.035))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
-        )
-    }
-}

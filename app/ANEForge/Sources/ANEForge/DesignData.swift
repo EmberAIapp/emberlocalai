@@ -1,62 +1,11 @@
 import SwiftUI
 
-// Static, illustrative content lifted 1:1 from the Ember.dc design.
-// The chat, memory, settings (persona / length) and ingestion flows are wired to the
-// real local engine; the connectors, wiki, timeline, agent-fil steps and Mode-Her
-// orchestration shown here illustrate the product's roadmap surfaces (cahier des charges).
-
-// MARK: - Apprendre / ingestion
-
-struct Connector: Identifiable {
-    let id = UUID()
-    let name: String
-    let desc: String
-    let icon: String
-    let iconBg: Color
-    var connected: Bool
-}
-
-struct LearnedSource: Identifiable {
-    let id = UUID()
-    let name: String
-    let meta: String
-    let icon: String
-    let iconBg: Color
-    let status: String      // "Appris" / "En cours" / "En attente"
-    let ok: Bool
-}
+// Configuration data for the REAL screens: the model catalog, persona options and
+// permission list feed Settings/Onboarding; the home suggestions feed Accueil.
+// (Demo/fictional content — fake connectors, fake "learned sources", café timeline,
+// agent-fil steps — has been removed; every screen now shows real engine data.)
 
 enum DesignData {
-    static let connectors: [Connector] = [
-        .init(name: "Apple Notes", desc: "38 notes lisibles", icon: "🗒️",
-              iconBg: Color(hexv: 0xffd250).opacity(0.16), connected: true),
-        .init(name: "Mail", desc: "Boîte locale", icon: "✉️",
-              iconBg: Color(hexv: 0x78aaff).opacity(0.16), connected: false),
-        .init(name: "Obsidian", desc: "Coffre Markdown", icon: "🔮",
-              iconBg: Color(hexv: 0xb482ff).opacity(0.16), connected: true),
-    ]
-
-    static func sources(ingesting: Bool) -> [LearnedSource] {
-        [
-            .init(name: "projet-cafe.md", meta: "Markdown · 4 ko · indexé", icon: "📄",
-                  iconBg: Color(hexv: 0xff965a).opacity(0.14), status: "Appris", ok: true),
-            .init(name: "Notes — Croix-Rousse", meta: "3 notes · Apple Notes", icon: "🗒️",
-                  iconBg: Color(hexv: 0xffd250).opacity(0.14), status: "Appris", ok: true),
-            .init(name: "Dossier /Recettes", meta: "12 fichiers · Obsidian", icon: "📁",
-                  iconBg: Color(hexv: 0xb482ff).opacity(0.14),
-                  status: ingesting ? "En cours" : "Appris", ok: !ingesting),
-            .init(name: "bail-belfort.pdf", meta: "PDF · 1.2 Mo", icon: "📕",
-                  iconBg: Color(hexv: 0x78aaff).opacity(0.14), status: "En attente", ok: false),
-        ]
-    }
-
-    // MARK: - Mémoire (illustrative facts mirror the design; real facts come from the engine)
-
-    static let timeline: [(text: String, when: String, dot: Color, last: Bool)] = [
-        ("A précisé le budget : ~85 k€", "Aujourd'hui · 14:20", Color(hexv: 0xff8a48), false),
-        ("Local rue de Belfort avec cave voûtée préféré", "Hier · 19:05", Color(hexv: 0xe0a079), false),
-        ("Création de la mémoire « Mon Ember »", "Il y a 3 jours", Color(hexv: 0x7c6f67), true),
-    ]
 
     // MARK: - Réglages
 
@@ -98,26 +47,6 @@ enum DesignData {
     static let defaultPermissions: [String: Bool] = [
         "Fichiers": true, "Apps": true, "Recherche": false, "Calendrier": true, "Automatisations": false,
     ]
-
-    // MARK: - Le fil / Mode Her — agent orchestration steps
-
-    struct AgentStep: Identifiable {
-        let id = UUID()
-        let icon: String
-        let title: String
-        let text: String
-        var gate: Bool = false
-    }
-
-    static let agentSteps: [AgentStep] = [
-        .init(icon: "🔎", title: "Recherche", text: "Compare des cafés-librairies à Lyon"),
-        .init(icon: "📂", title: "Fichiers", text: "Compile un dossier projet sur ton Mac"),
-        .init(icon: "📅", title: "Calendrier", text: "Bloquer la visite du local — jeudi 10 h", gate: true),
-        .init(icon: "🧠", title: "Mémoire", text: "Vérifie le budget dans ta mémoire"),
-        .init(icon: "✉️", title: "Mail", text: "Prépare un brouillon au propriétaire"),
-    ]
-
-    static let herTranscript = "« Prépare-moi le dossier pour la visite du local, et bloque jeudi 10 h. »"
 
     // Real, neutral starting points (no fictional café scenario) — work for anyone.
     static let homeSuggestions = [

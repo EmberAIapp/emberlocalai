@@ -22,13 +22,6 @@ struct ContentView: View {
                     Divider().overlay(.white.opacity(0.05))
                     ZStack {
                         content
-                        // Le fil floats at the bottom of the work screens. On Home the
-                        // conversation input already owns the bottom, so we don't overlap it.
-                        if state.view != .home {
-                            AgentFil()
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                                .padding(.bottom, 22)
-                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
