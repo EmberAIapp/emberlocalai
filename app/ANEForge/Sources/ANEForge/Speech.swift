@@ -2,65 +2,248 @@ import Foundation
 import AVFoundation
 import Speech
 
-/// Mains-libres voice for Mode Her (§4.E): local STT via SFSpeechRecognizer (on-device when
-/// available) + a natural local TTS. Ember's voice is the neural Kokoro model served by the
-/// engine (`playWav`); AVSpeechSynthesizer is only the last-resort fallback. No cloud.
+/// Mains-libres voice for Mode Her (§4.E). Local STT (SFSpeechRecognizer, on-device) + a natural
+/// local voice (Kokoro WAV played back; AVSpeech only as last resort). No cloud.
 ///
-/// The class is @MainActor (for @Published + UI), but Apple's system callbacks fire on
-/// background queues. To avoid the dispatch_assert_queue trap (a @MainActor closure run
-/// off-main) AND Swift-6 "sending self" errors, the callbacks capture ONLY Sendable values
-/// (via a continuation / an AsyncStream) — never `self` — and a MainActor task applies them.
+/// TWO engines, chosen automatically at session start:
+///  • FULL-DUPLEX (preferred): one continuous AVAudioEngine with the Mac's voice-processing unit
+///    (`setVoiceProcessingEnabled`) → echo cancellation. Ember's voice is played through an
+///    AVAudioPlayerNode on the SAME engine, so the (echo-cancelled) mic only hears the USER —
+///    which lets the user talk OVER Ember (barge-in), like ChatGPT voice mode.
+///  • TURN-BASED (fallback if voice processing is unavailable): the validated per-turn mic that
+///    opens, auto-sends on a pause, and is reopened by the view after Ember finishes speaking.
+///
+/// All Apple callbacks fire on background/realtime threads; to avoid the @MainActor isolation
+/// trap AND Swift-6 "sending self", those closures capture ONLY Sendable values (a RequestBox,
+/// an AsyncStream continuation) — never `self` — and a MainActor task applies the updates.
 private struct STTUpdate: Sendable { var text: String?; var isFinal: Bool; var failed: Bool }
+
+/// Sendable holder so the realtime audio tap can append to the *current* recognition request
+/// without touching the main actor (the request swaps per turn).
+private final class RequestBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var req: SFSpeechAudioBufferRecognitionRequest?
+    func set(_ r: SFSpeechAudioBufferRecognitionRequest?) { lock.lock(); req = r; lock.unlock() }
+    func append(_ b: AVAudioPCMBuffer) { lock.lock(); let r = req; lock.unlock(); r?.append(b) }
+}
 
 @MainActor
 final class SpeechController: ObservableObject {
-    @Published var listening = false
+    @Published var listening = false        // a user turn is open (mic capturing the user)
+    @Published var speaking = false          // Ember is playing a reply
     @Published var authorized = false
     @Published var partial = ""
-    @Published var speaking = false                  // a reply is playing aloud (orb → parle)
+    @Published var fullDuplex = false        // AEC engaged → user can talk over Ember
+
+    /// Called (main actor) with the user's transcript at the end of each turn.
+    var onTranscript: ((String) -> Void)?
+    /// A pause longer than this (no new words) ends the user's turn → auto-send.
+    var silenceSeconds: Double = 1.2
 
     private let synth = AVSpeechSynthesizer()
-    private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private var consumer: Task<Void, Never>?
-    private var player: AVAudioPlayer?
+
+    // --- Full-duplex (continuous engine) ---
+    private var fdEngine: AVAudioEngine?
+    private var fdPlayer: AVAudioPlayerNode?
+    private let box = RequestBox()
+    private enum Mode { case idle, listening, speaking }
+    private var mode: Mode = .idle
+    private var fdReq: SFSpeechAudioBufferRecognitionRequest?
+    private var fdTask: SFSpeechRecognitionTask?
+    private var fdConsumer: Task<Void, Never>?
+    private var fdSilence: Task<Void, Never>?
+    private var fdEndTimer: Task<Void, Never>?
+    private var fdHeard = false
+    private var recognizer: SFSpeechRecognizer?
+    private let kokoroFormat = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+
+    // --- Turn-based fallback ---
+    private var tbEngine: AVAudioEngine?
+    private var tbReq: SFSpeechAudioBufferRecognitionRequest?
+    private var tbTask: SFSpeechRecognitionTask?
+    private var tbConsumer: Task<Void, Never>?
+    private var tbSilence: Task<Void, Never>?
+    private var tbFallback: Task<Void, Never>?
+    private var tbHeard = false
+    private var simplePlayer: AVAudioPlayer?
     private var speakingOff: Task<Void, Never>?
-    private var silenceTimer: Task<Void, Never>?     // auto-finalize after a pause (hands-free)
-    private var finalizeFallback: Task<Void, Never>? // safety net if no final result arrives
-    private var heard = false                        // we've received at least one word
-    /// A pause longer than this (no new words) means the user finished speaking → auto-send.
-    var silenceSeconds: Double = 1.3
+    private var localeId = "fr-FR"
 
-    /// Called (on the main actor) with the final transcript when the user stops speaking.
-    var onTranscript: ((String) -> Void)?
-
-    func requestAuth() {
-        Task { self.authorized = (await Self.authStatus() == .authorized) }
-    }
+    // MARK: - Authorisation
+    func requestAuth() { Task { self.authorized = (await Self.authStatus() == .authorized) } }
     nonisolated private static func authStatus() async -> SFSpeechRecognizerAuthorizationStatus {
-        await withCheckedContinuation { c in
-            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }   // closure captures only `c`
+        await withCheckedContinuation { c in SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) } }
+    }
+
+    // MARK: - Public session API (the view calls these)
+
+    /// Start a hands-free voice session. Prefers full-duplex (barge-in); falls back to turn-based.
+    /// Set true to try full-duplex (barge-in). OFF by default: it's unstable past ~2 turns and the
+    /// validated turn-based loop is the reliable path (fiabilité d'abord). Re-enable once stabilised.
+    var allowFullDuplex = false
+
+    func startVoice(locale: String) {
+        localeId = locale
+        guard let rec = SFSpeechRecognizer(locale: Locale(identifier: locale)), rec.isAvailable else { return }
+        recognizer = rec
+        if allowFullDuplex && startFullDuplex() { fullDuplex = true; beginFDTurn(.listening) }
+        else { fullDuplex = false; startTurnBased() }
+    }
+
+    func endVoice() {
+        if fdEngine != nil { endFullDuplex() } else { stopListening() }
+        stopSpeaking()
+    }
+
+    /// True while a session (either kind) is live.
+    var sessionActive: Bool { fdEngine != nil || tbEngine != nil }
+
+    // MARK: - Full-duplex engine
+
+    private func startFullDuplex() -> Bool {
+        let eng = AVAudioEngine()
+        let input = eng.inputNode
+        // Echo cancellation. If unavailable, bail → caller uses the turn-based path.
+        do { try input.setVoiceProcessingEnabled(true) } catch { return false }
+        let player = AVAudioPlayerNode()
+        eng.attach(player)
+        eng.connect(player, to: eng.mainMixerNode, format: kokoroFormat)
+        let fmt = input.outputFormat(forBus: 0)
+        guard fmt.sampleRate > 0 else { return false }
+        let b = box
+        input.installTap(onBus: 0, bufferSize: 1024, format: fmt) { buf, _ in b.append(buf) }  // captures only `box`
+        eng.prepare()
+        do { try eng.start() } catch { eng.inputNode.removeTap(onBus: 0); return false }
+        fdEngine = eng; fdPlayer = player
+        return true
+    }
+
+    private func endFullDuplex() {
+        endFDRecognition()
+        fdEndTimer?.cancel(); fdEndTimer = nil
+        fdPlayer?.stop()
+        if let eng = fdEngine { eng.inputNode.removeTap(onBus: 0); eng.stop() }
+        fdEngine = nil; fdPlayer = nil; box.set(nil)
+        mode = .idle; listening = false; speaking = false; partial = ""; fullDuplex = false
+    }
+
+    private func beginFDTurn(_ m: Mode) {
+        endFDRecognition()
+        guard let rec = recognizer else { return }
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        fdReq = req; box.set(req)
+        partial = ""; fdHeard = false
+        mode = m; listening = (m == .listening)
+        let (stream, cont) = AsyncStream.makeStream(of: STTUpdate.self)
+        fdTask = Self.makeTask(rec: rec, req: req, cont: cont)
+        fdConsumer = Task { @MainActor in for await u in stream { self.handleFD(u) } }
+    }
+
+    private func handleFD(_ u: STTUpdate) {
+        if let t = u.text, !t.isEmpty {
+            if mode == .speaking {
+                if t.count >= 3 { bargeIn(with: t) }     // user talks over Ember → cut her off
+                return
+            }
+            partial = t; fdHeard = true; scheduleFDSilence()
+        }
+        if u.isFinal { finishFDTurn(text: u.text) }
+        else if u.failed && mode == .listening { beginFDTurn(.listening) }
+    }
+
+    private func bargeIn(with t: String) {
+        fdEndTimer?.cancel()
+        fdPlayer?.stop()
+        speaking = false
+        mode = .listening; listening = true
+        partial = t; fdHeard = true
+        scheduleFDSilence()                                // same request keeps capturing the user
+    }
+
+    private func scheduleFDSilence() {
+        fdSilence?.cancel()
+        fdSilence = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(silenceSeconds * 1_000_000_000))
+            guard !Task.isCancelled, self.mode == .listening, self.fdHeard else { return }
+            self.fdReq?.endAudio()                          // → final → finishFDTurn
         }
     }
 
-    // MARK: TTS — Ember speaks
+    private func finishFDTurn(text: String?) {
+        fdSilence?.cancel()
+        let out = (text?.isEmpty == false ? text! : partial).trimmingCharacters(in: .whitespacesAndNewlines)
+        listening = false; mode = .idle
+        endFDRecognition(); box.set(nil)
+        if !out.isEmpty { onTranscript?(out) }              // app replies → playWav(...) → speaking
+        else if fdEngine != nil { beginFDTurn(.listening) } // heard nothing → keep listening
+    }
 
-    /// Play Ember's neural voice (a WAV produced by the engine's Kokoro model). Preferred path.
-    func playWav(_ data: Data) {
-        stopSpeaking()
-        guard let p = try? AVAudioPlayer(data: data) else { return }
-        player = p
+    private func playFDWav(_ data: Data) {
+        guard let eng = fdEngine, let p = fdPlayer, eng.isRunning,
+              let buf = Self.pcmBuffer(from: data, format: kokoroFormat) else { return }
+        fdEndTimer?.cancel(); p.stop()
+        beginFDTurn(.speaking)                              // barge-in watch while she speaks
         speaking = true
-        p.play()
+        p.scheduleBuffer(buf, at: nil, options: []) { }
+        if !p.isPlaying { p.play() }
+        let dur = Double(buf.frameLength) / buf.format.sampleRate
+        fdEndTimer = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64((dur + 0.2) * 1_000_000_000))
+            if self.speaking { self.fdPlaybackEnded() }
+        }
+    }
+
+    private func fdPlaybackEnded() {
+        fdPlayer?.stop(); speaking = false
+        if fdEngine != nil { beginFDTurn(.listening) }      // her turn ended → next user turn
+    }
+
+    private func endFDRecognition() {
+        fdSilence?.cancel(); fdSilence = nil
+        fdTask?.cancel(); fdTask = nil
+        fdConsumer?.cancel(); fdConsumer = nil
+        fdReq = nil
+    }
+
+    nonisolated private static func makeTask(rec: SFSpeechRecognizer, req: SFSpeechAudioBufferRecognitionRequest,
+                                             cont: AsyncStream<STTUpdate>.Continuation) -> SFSpeechRecognitionTask {
+        rec.recognitionTask(with: req) { result, error in
+            cont.yield(STTUpdate(text: result?.bestTranscription.formattedString,
+                                 isFinal: result?.isFinal ?? false, failed: error != nil))
+            if (result?.isFinal ?? false) || error != nil { cont.finish() }
+        }
+    }
+
+    nonisolated private static func pcmBuffer(from data: Data, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ember_tts_\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        do {
+            try data.write(to: url)
+            let file = try AVAudioFile(forReading: url)
+            let fmt = file.processingFormat
+            guard let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: AVAudioFrameCount(file.length)) else { return nil }
+            try file.read(into: buf)
+            return buf
+        } catch { return nil }
+    }
+
+    // MARK: - TTS (routes to the active engine; AVSpeech only as last resort)
+
+    func playWav(_ data: Data) {
+        if fdEngine != nil { playFDWav(data); return }
+        // turn-based playback (separate AVAudioPlayer)
+        stopSimplePlayback()
+        guard let p = try? AVAudioPlayer(data: data) else { return }
+        simplePlayer = p; speaking = true; p.play()
         let dur = p.duration
         speakingOff = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(max(0.2, dur) * 1_000_000_000) + 150_000_000)
-            if self.player === p { self.speaking = false; self.player = nil }
+            if self.simplePlayer === p { self.speaking = false; self.simplePlayer = nil }
         }
     }
 
-    /// Last-resort fallback voice (OS synthesizer) when the neural voice is unavailable.
     func speakFallback(_ text: String, locale: String = "fr-FR") {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
@@ -70,21 +253,24 @@ final class SpeechController: ObservableObject {
         u.rate = AVSpeechUtteranceDefaultSpeechRate
         speaking = true
         synth.speak(u)
-        // best-effort: clear the speaking flag shortly after (synth has no main-actor-safe callback here)
         speakingOff = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(Double(t.count) * 0.06 * 1_000_000_000) + 1_000_000_000)
-            if !self.synth.isSpeaking { self.speaking = false }
+            if !self.synth.isSpeaking { self.speaking = false; if self.fdEngine != nil { self.beginFDTurn(.listening) } }
         }
     }
 
     func stopSpeaking() {
         speakingOff?.cancel(); speakingOff = nil
+        fdEndTimer?.cancel(); fdEndTimer = nil
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
-        player?.stop(); player = nil
+        fdPlayer?.stop()
+        stopSimplePlayback()
         speaking = false
     }
 
-    /// Map a 2-letter system language to a BCP-47 locale for the fallback synthesizer.
+    private func stopSimplePlayback() { simplePlayer?.stop(); simplePlayer = nil }
+
+    /// Map a 2-letter system language to a BCP-47 locale for the fallback synthesizer / recognizer.
     static func locale(for lang: String) -> String {
         switch lang.prefix(2).lowercased() {
         case "fr": return "fr-FR"; case "es": return "es-ES"; case "de": return "de-DE"
@@ -92,111 +278,87 @@ final class SpeechController: ObservableObject {
         }
     }
 
-    // MARK: STT — listen (local). Mains-libres: a pause auto-sends; a click stops & sends.
+    // MARK: - Turn-based STT (validated fallback). Mic opens per turn; a pause auto-sends.
+
     func toggleListening(locale: String = "fr-FR") {
-        if listening { finalize() } else { startListening(locale: locale) }
+        if listening { finalizeTB() } else { startTurnBased(locale: locale) }
     }
 
-    private func startListening(locale: String) {
-        guard let rec = SFSpeechRecognizer(locale: Locale(identifier: locale)), rec.isAvailable else { return }
+    private func startTurnBased(locale: String? = nil) {
+        let loc = locale ?? localeId
+        guard let rec = SFSpeechRecognizer(locale: Locale(identifier: loc)), rec.isAvailable else { return }
+        let eng = AVAudioEngine()
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // stays local
-        request = req
-        partial = ""; heard = false
-
+        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        tbReq = req; partial = ""; tbHeard = false
         let (stream, cont) = AsyncStream.makeStream(of: STTUpdate.self)
-        do {
-            // tap + recognitionTask closures are created in a NONISOLATED context so AVFoundation's
-            // realtime audio thread / the recognizer queue don't trip the @MainActor isolation assert.
-            task = try Self.beginRecognition(rec: rec, engine: engine, req: req, cont: cont)
-        } catch {
-            cleanup(); return
-        }
-        listening = true
-
-        consumer = Task { @MainActor in
+        do { tbTask = try Self.beginTB(rec: rec, engine: eng, req: req, cont: cont) }
+        catch { cleanupTB(); return }
+        tbEngine = eng; listening = true
+        tbConsumer = Task { @MainActor in
             for await u in stream {
-                if let t = u.text, !t.isEmpty {
-                    self.partial = t
-                    self.heard = true
-                    self.scheduleSilenceFinalize()      // each new word resets the pause timer
-                }
-                if u.isFinal {
-                    let t = u.text
-                    self.finishListening(send: t, fallbackToPartial: false)
-                } else if u.failed {
-                    self.finishListening(send: nil, fallbackToPartial: true)
-                }
+                if let t = u.text, !t.isEmpty { self.partial = t; self.tbHeard = true; self.scheduleTBSilence() }
+                if u.isFinal { self.finishTB(send: u.text, fallbackToPartial: false) }
+                else if u.failed { self.finishTB(send: nil, fallbackToPartial: true) }
             }
         }
     }
 
-    /// After a pause (no new words), tell the recognizer the audio is done → it emits a final
-    /// result, which we turn into a send. This is what makes it truly hands-free.
-    private func scheduleSilenceFinalize() {
-        silenceTimer?.cancel()
-        silenceTimer = Task { @MainActor in
+    private func scheduleTBSilence() {
+        tbSilence?.cancel()
+        tbSilence = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(silenceSeconds * 1_000_000_000))
-            guard !Task.isCancelled, self.listening, self.heard else { return }
-            self.finalize()
+            guard !Task.isCancelled, self.listening, self.tbHeard else { return }
+            self.finalizeTB()
         }
     }
 
-    /// Stop accepting audio and produce a final transcript (used by the pause timer AND by a
-    /// manual mic tap). A fallback sends the current partial if no final result arrives.
-    private func finalize() {
+    private func finalizeTB() {
         guard listening else { return }
-        silenceTimer?.cancel()
-        request?.endAudio()
-        finalizeFallback?.cancel()
-        finalizeFallback = Task { @MainActor in
+        tbSilence?.cancel(); tbReq?.endAudio()
+        tbFallback?.cancel()
+        tbFallback = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_600_000_000)
             guard !Task.isCancelled, self.listening else { return }
-            self.finishListening(send: self.partial, fallbackToPartial: false)
+            self.finishTB(send: self.partial, fallbackToPartial: false)
         }
     }
 
-    private func finishListening(send text: String?, fallbackToPartial: Bool) {
+    private func finishTB(send text: String?, fallbackToPartial: Bool) {
         let out = (text?.isEmpty == false ? text : nil) ?? (fallbackToPartial ? partial : nil)
-        cleanup()
+        cleanupTB()
         if let out, !out.isEmpty { onTranscript?(out) }
     }
 
-    nonisolated private static func beginRecognition(
+    func stopListening() {
+        tbSilence?.cancel(); tbFallback?.cancel()
+        tbReq?.endAudio()
+        cleanupTB()
+    }
+
+    private func cleanupTB() {
+        tbSilence?.cancel(); tbSilence = nil
+        tbFallback?.cancel(); tbFallback = nil
+        if let eng = tbEngine { if eng.isRunning { eng.stop() }; eng.inputNode.removeTap(onBus: 0) }
+        tbEngine = nil
+        tbTask?.cancel(); tbTask = nil
+        tbConsumer?.cancel(); tbConsumer = nil
+        tbReq = nil; tbHeard = false; listening = false
+    }
+
+    nonisolated private static func beginTB(
         rec: SFSpeechRecognizer, engine: AVAudioEngine,
         req: SFSpeechAudioBufferRecognitionRequest, cont: AsyncStream<STTUpdate>.Continuation
     ) throws -> SFSpeechRecognitionTask {
         let node = engine.inputNode
-        node.installTap(onBus: 0, bufferSize: 1024, format: node.outputFormat(forBus: 0)) { buf, _ in
-            req.append(buf)
-        }
+        node.installTap(onBus: 0, bufferSize: 1024, format: node.outputFormat(forBus: 0)) { buf, _ in req.append(buf) }
         engine.prepare()
         try engine.start()
         return rec.recognitionTask(with: req) { result, error in
             cont.yield(STTUpdate(text: result?.bestTranscription.formattedString,
-                                 isFinal: result?.isFinal ?? false,
-                                 failed: error != nil))
+                                 isFinal: result?.isFinal ?? false, failed: error != nil))
             if (result?.isFinal ?? false) || error != nil { cont.finish() }
         }
-    }
-
-    /// Hard stop without sending (e.g. leaving the screen).
-    func stopListening() {
-        silenceTimer?.cancel(); finalizeFallback?.cancel()
-        request?.endAudio()
-        cleanup()
-    }
-
-    private func cleanup() {
-        silenceTimer?.cancel(); silenceTimer = nil
-        finalizeFallback?.cancel(); finalizeFallback = nil
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
-        task?.cancel(); task = nil
-        consumer?.cancel(); consumer = nil
-        request = nil
-        heard = false
-        listening = false
     }
 }

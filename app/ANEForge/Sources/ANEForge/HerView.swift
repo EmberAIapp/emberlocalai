@@ -34,7 +34,9 @@ struct HerView: View {
         .onChange(of: speech.listening) { _, v in state.herListening = v }
         .onChange(of: speech.speaking)  { _, v in
             state.herSpeaking = v
-            if state.voiceSession && !v { reopenMic() }     // Ember finished speaking → next turn
+            // Turn-based only: reopen the mic after she speaks. Full-duplex self-manages its loop
+            // (the mic never closed) so the view must NOT also reopen it.
+            if state.voiceSession && !v && !speech.fullDuplex { reopenMic() }
         }
         .onChange(of: state.herSpeak) { _, req in
             guard let req else { return }
@@ -51,12 +53,12 @@ struct HerView: View {
                 }
             }
         }
-        .onDisappear { speech.stopListening(); speech.stopSpeaking() }
+        .onDisappear { speech.endVoice() }
     }
 
     private func micLocale() -> String { SpeechController.locale(for: state.herLang) }
-    private func startVoice() { state.voiceSession = true; if !speech.listening { speech.toggleListening(locale: micLocale()) } }
-    private func endVoice() { state.voiceSession = false; speech.stopSpeaking(); if speech.listening { speech.stopListening() } }
+    private func startVoice() { state.voiceSession = true; speech.startVoice(locale: micLocale()) }
+    private func endVoice() { state.voiceSession = false; speech.endVoice() }
     private func toggleVoice() { if state.voiceSession { endVoice() } else { startVoice() } }
     /// Continuous mode: a moment after Ember stops speaking, reopen the mic for the next turn.
     private func reopenMic() {
@@ -199,8 +201,8 @@ private struct ConversationCard: View {
                 Text("Conversation").font(.system(size: 13, weight: .bold)).tracking(0.5)
                     .foregroundStyle(Color(hexv: 0xf0ddcf))
                 Spacer()
-                Text(state.voiceSession ? "mains libres" : "local")
-                    .font(.system(size: 11)).foregroundStyle(Color.emberMuted)
+                Text(state.voiceSession ? (speech.fullDuplex ? "mains libres · duplex" : "mains libres") : "local")
+                    .font(.system(size: 11)).foregroundStyle(speech.fullDuplex && state.voiceSession ? Color(hexv: 0x7fd095) : Color.emberMuted)
                     .padding(.vertical, 3).padding(.horizontal, 9)
                     .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.06)))
             }
