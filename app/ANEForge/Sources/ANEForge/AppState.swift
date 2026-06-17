@@ -547,6 +547,13 @@ final class AppState: ObservableObject {
         await loadFacts(name)
     }
 
+    /// CRUD-delete on the Apple Notes source: forget every fact learned from Notes.
+    func forgetNotes() async {
+        guard let name = selected?.name else { return }
+        _ = try? await engine.forgetSource(name: name, prefix: "notes:apple")
+        await loadFacts(name)
+    }
+
     /// « Remettre » : re-learn ALL connected folders at once (refresh the whole set).
     func resyncAll() {
         guard let ia = selected?.name,

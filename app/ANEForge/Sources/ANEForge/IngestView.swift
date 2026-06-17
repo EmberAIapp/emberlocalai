@@ -259,46 +259,58 @@ struct IngestView: View {
 }
 
 // MARK: - Apple Notes connector (REAL — reads your notes and learns facts, §4.A)
+// CRUD : Apprendre/Re-synchroniser (create/update) + 🗑 oublier ce qu'il a appris (delete).
+// Pas de ✕ : Apple Notes est une source intégrée, on ne la « retire » pas — on oublie ses faits.
 private struct AppleNotesCard: View {
     @EnvironmentObject var state: AppState
     @State private var hover = false
 
     var body: some View {
-        Button { Task { await state.teachNotes() } } label: {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(Color(hexv: 0xffd250).opacity(0.16))
-                    Text("🗒️").font(.system(size: 19))
-                }
-                .frame(width: 38, height: 38)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Apple Notes")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hexv: 0xecd9c9))
-                    Text("Lis tes notes et apprends-en des faits — 100% en local")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(hexv: 0x8a7d75))
-                }
-                Spacer()
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Color(hexv: 0xffd250).opacity(0.16))
+                Text("🗒️").font(.system(size: 19))
+            }
+            .frame(width: 38, height: 38)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Apple Notes")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hexv: 0xecd9c9))
+                Text("Lis tes notes et apprends-en des faits — 100% en local")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(hexv: 0x8a7d75))
+            }
+            Spacer()
+            // Create / Update : (ré)apprendre les notes
+            Button { Task { await state.teachNotes() } } label: {
                 TagPill(
                     text: state.isLearning ? "Lecture…" : "Apprendre mes notes",
                     fg: Color(hexv: 0x9fd9ad),
                     bg: Color(hexv: 0x5fd07a).opacity(0.12)
                 )
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(hover ? 0.06 : 0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color(hexv: 0x5fd07a).opacity(hover ? 0.30 : 0.12), lineWidth: 1)
-            )
+            .buttonStyle(.plain).disabled(state.isLearning)
+            .help("(Ré)apprendre tes notes Apple")
+            // Delete : oublier ce que les notes ont appris
+            Button { Task { await state.forgetNotes() } } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(hexv: 0xff8a7a))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain).disabled(state.isLearning)
+            .help("Oublier ce qu'Ember a appris de tes notes")
         }
-        .buttonStyle(.plain)
-        .disabled(state.isLearning)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(hover ? 0.06 : 0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color(hexv: 0x5fd07a).opacity(hover ? 0.30 : 0.12), lineWidth: 1)
+        )
         .onHover { hover = $0 }
     }
 }
