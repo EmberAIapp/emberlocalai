@@ -172,8 +172,15 @@ private struct ConversationColumn: View {
         if state.agentBusy || state.isBusy { return 0.32 }
         return 0.14
     }
+    // The live transcript to show — but blank it out if it's actually Ember's own voice picked
+    // up by the mic (echo), so her words never appear in your input bar.
+    private var liveText: String {
+        let p = speech.partial
+        return (p.isEmpty || state.herSpeaking || state.isEcho(p)) ? "" : p
+    }
+
     private var caption: String {
-        if speech.listening { return speech.partial.isEmpty ? "À l'écoute…" : speech.partial }
+        if speech.listening { return liveText.isEmpty ? "À l'écoute…" : liveText }
         if let last = state.herConversation.last(where: { $0.role == .ember && !$0.text.isEmpty }) { return last.text }
         return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Parle-moi, ou confie-moi une tâche."
     }
@@ -265,7 +272,7 @@ private struct ConversationColumn: View {
             }
             .buttonStyle(.plain).help(state.voiceSession ? "Couper la conversation" : "Conversation vocale (mains libres)")
 
-            TextField(speech.listening ? (speech.partial.isEmpty ? "À l'écoute…" : speech.partial)
+            TextField(speech.listening ? (liveText.isEmpty ? "À l'écoute…" : liveText)
                        : (state.voiceSession ? "En conversation — appuie pour couper" : "Parle ou écris à Ember…"), text: $draft)
                 .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
                 .onSubmit { if canSend { send() } }
