@@ -158,7 +158,7 @@ class FactStore:
         sims = _semantic_scores(query, [f.text for f in facts])
         if sims is not None:
             i = int(max(range(len(sims)), key=lambda j: sims[j]))
-            if sims[i] >= 0.30:
+            if sims[i] >= 0.26:
                 return facts[i]
 
         return kw_best if kw_n >= 1 and len(qw) <= 2 else None

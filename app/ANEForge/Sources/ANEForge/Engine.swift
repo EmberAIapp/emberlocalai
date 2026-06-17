@@ -99,6 +99,13 @@ actor Engine {
         _ = try await post("/rename", ["name": name, "new": newName])
     }
 
+    /// Learn from a file's text by extracting facts into memory. Returns the number learned.
+    func ingest(name: String, text: String) async throws -> Int {
+        struct R: Decodable { let learned: Int }
+        let data = try await post("/ingest", ["name": name, "text": text])
+        return (try? JSONDecoder().decode(R.self, from: data))?.learned ?? 0
+    }
+
     func chat(name: String, prompt: String) async throws -> ChatReply {
         try JSONDecoder().decode(ChatReply.self, from: try await post("/chat", ["name": name, "prompt": prompt]))
     }

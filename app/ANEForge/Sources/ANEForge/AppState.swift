@@ -1,4 +1,5 @@
 import SwiftUI
+import PDFKit
 
 struct ChatMessage: Identifiable, Hashable {
     enum Role { case user, assistant }
@@ -211,15 +212,31 @@ final class AppState: ObservableObject {
     /// Read a user-selected/dropped file IN THE APP (which holds the access grant),
     /// stage it to a temp path the engine subprocess can read, then learn from it.
     /// This sidesteps macOS TCC: the engine never touches the original protected folder.
+    /// §4.A — learn from a dropped file by extracting its facts into memory (reliable recall),
+    /// not by fine-tuning weights. Reads .txt/.md as UTF-8 and .pdf via PDFKit.
     func teachFile(_ url: URL) async {
+        guard let name = selected?.name else {
+            errorText = "Choisis (ou crée) d'abord une IA."; return
+        }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        isLearning = true; trainingLog = []; defer { isLearning = false }
         do {
-            let data = try Data(contentsOf: url)
-            let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("ember-\(UUID().uuidString).txt")
-            try data.write(to: tmp)
-            await teach(dataPath: tmp.path)
+            let text: String
+            if url.pathExtension.lowercased() == "pdf" {
+                text = PDFDocument(url: url)?.string ?? ""
+            } else {
+                let data = try Data(contentsOf: url)
+                text = String(data: data, encoding: .utf8)
+                    ?? String(decoding: data, as: UTF8.self)
+            }
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                errorText = "Fichier vide ou illisible : \(url.lastPathComponent)"; return
+            }
+            trainingLog.append("Lecture de \(url.lastPathComponent)…")
+            let learned = try await engine.ingest(name: name, text: text)
+            trainingLog.append("✦ \(learned) fait(s) appris depuis \(url.lastPathComponent)")
+            await loadFacts(name)
         } catch {
             errorText = "Lecture du fichier impossible : \(error.localizedDescription)"
         }

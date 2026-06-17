@@ -50,6 +50,53 @@ def _save_settings(name: str, persona: str, max_tokens: int):
     _settings_path(name).write_text(json.dumps({"persona": persona, "max_tokens": max_tokens}))
 
 
+def _parse_fact_array(raw: str) -> list:
+    """Pull a JSON array of short fact strings out of the model's reply (robust to extra text)."""
+    if not raw:
+        return []
+    s = raw.strip()
+    a, b = s.find("["), s.rfind("]")
+    if a < 0 or b <= a:
+        return []
+    try:
+        arr = json.loads(s[a:b + 1])
+    except Exception:
+        return []
+    out = []
+    for x in (arr if isinstance(arr, list) else []):
+        t = " ".join(str(x).split())
+        if 3 <= len(t) <= 200:
+            out.append(t)
+    return out[:6]
+
+
+def _chunk_text(text: str, max_chars: int = 220, max_chunks: int = 24) -> list:
+    """Split ingested text into SENTENCE-level chunks — a small local model extracts far more
+    reliably from one sentence at a time than from a dense paragraph."""
+    chunks = []
+    for unit in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        u = unit.strip()
+        if not u:
+            continue
+        while len(u) > max_chars:
+            chunks.append(u[:max_chars]); u = u[max_chars:]
+        if u:
+            chunks.append(u)
+        if len(chunks) >= max_chunks:
+            break
+    return chunks[:max_chunks]
+
+
+def _grounded(fact: str, source: str) -> bool:
+    """True if most of the fact's content words appear in the source — rejects model hallucinations."""
+    fw = [w for w in re.findall(r"[^\W\d_]+", fact.lower(), re.UNICODE) if len(w) > 3]
+    if not fw:
+        return False
+    sl = source.lower()
+    hits = sum(1 for w in fw if w in sl)
+    return hits / len(fw) >= 0.5
+
+
 class Engine:
     """Holds the MLX model (loaded once) + per-model conversation history."""
 
@@ -68,27 +115,31 @@ class Engine:
 
     def _persona(self, name: str, prompt: str) -> str:
         s = _load_settings(name)
+        # Language-neutral default (no hard-coded French — §2.7): instruct the model to
+        # mirror the user's language so Ember answers FR→FR, EN→EN, ES→ES, etc.
         lines = [s.get("persona") or
-                 ("Tu es Ember, l'assistant personnel local de l'utilisateur. "
-                  "Tu es chaleureux, concis, et tu réponds dans la langue de l'utilisateur.")]
+                 ("You are Ember, the user's 100% local personal AI. You are warm, concise, "
+                  "and you ALWAYS reply in the same language as the user's message.")]
         facts = store_for_model(name).relevant(prompt)
         if facts:
-            lines.append("Ce que tu sais sur l'utilisateur :\n" +
-                         "\n".join(f"- {f.text}" for f in facts))
+            lines.append(
+                "Known facts about the USER. When the user asks about themselves (\"I\", \"my\", "
+                "\"me\" — in any language), these facts are the answer; use them and never claim "
+                "you don't know if a fact covers it. Keep the user's language.\n" +
+                "\n".join(f"- {f.text}" for f in facts))
         return "\n\n".join(lines)
 
     def chat(self, name: str, prompt: str) -> dict:
         store = store_for_model(name)
-        learned = store.extract_and_store(prompt)
 
-        # Reliable fact recall: answer from editable memory when it clearly matches.
+        # Reliable fact recall: answer straight from editable memory on a clear match.
         is_q = ("?" in prompt) or any(prompt.lower().lstrip().startswith(w) for w in _QWORDS)
-        if is_q and not learned:
+        if is_q:
             fact = store.best_match(prompt)
             if fact is not None:
                 self._history.setdefault(name, []).append({"role": "user", "content": prompt})
                 self._history[name].append({"role": "assistant", "content": fact.text})
-                return {"answer": fact.text, "learned": [f.text for f in learned], "source": "memory"}
+                return {"answer": fact.text, "learned": [], "source": "memory"}
 
         hist = self._history.setdefault(name, [])
         messages = [{"role": "system", "content": self._persona(name, prompt)}]
@@ -100,7 +151,52 @@ class Engine:
             answer = self.mlx.chat(messages, max_tokens=max_tokens)
         hist.append({"role": "user", "content": prompt})
         hist.append({"role": "assistant", "content": answer})
-        return {"answer": answer, "learned": [f.text for f in learned], "source": "mlx"}
+
+        # §4.D — fact extraction BY THE MODEL (any language), in the background so it never
+        # delays the reply; serialized against generation via the same lock. Replaces the old
+        # FR+EN regex (which violated §2.7).
+        threading.Thread(target=self._learn_async, args=(name, prompt), daemon=True).start()
+        return {"answer": answer, "learned": [], "source": "mlx"}
+
+    def _learn_async(self, name: str, message: str):
+        try:
+            facts = self._extract_facts(message)
+        except Exception:
+            return
+        if not facts:
+            return
+        store = store_for_model(name)  # fresh connection for this thread
+        for f in facts:
+            store.add(f, kind="misc", source="model")
+
+    def _extract_facts(self, message: str) -> list[str]:
+        sys = ("You are a fact extractor. From the user's message, extract DURABLE personal facts "
+               "the user states about THEMSELVES (name, age, location, job, relationships, "
+               "tastes/preferences, ongoing projects). Reply with ONLY a JSON array of short "
+               "third-person statements IN THE USER'S LANGUAGE, e.g. "
+               '["Habite à Lyon","A un chat nommé Marlow"]. List each distinct fact ONCE — never '
+               "repeat or paraphrase the same fact. At most 5. No questions, no requests, no "
+               "transient/trivial info, no extra text. If there are none, reply []." )
+        msgs = [{"role": "system", "content": sys}, {"role": "user", "content": message}]
+        with self._lock:
+            raw = self.mlx.chat(msgs, max_tokens=160)
+        return _parse_fact_array(raw)
+
+    def ingest(self, name: str, text: str) -> int:
+        """§4.A — learn from a file by extracting facts into memory (reliable recall),
+        not by fine-tuning weights (§9.A: collapse-prone on a small local model)."""
+        store = store_for_model(name)
+        learned = 0
+        for chunk in _chunk_text(text):
+            try:
+                for f in self._extract_facts(chunk):
+                    # §2.4 honesty: never store a fact the model invented — keep it only if its
+                    # content is actually grounded in the source chunk.
+                    if _grounded(f, chunk) and store.add(f, kind="misc", source="file"):
+                        learned += 1
+            except Exception:
+                continue
+        return learned
 
     def reset(self, name: str):
         self._history.pop(name, None)
@@ -172,6 +268,13 @@ def make_handler(engine: Engine):
                     if not engine.ready:
                         return self._send(503, {"error": "model loading"})
                     return self._send(200, engine.chat(b["name"], b["prompt"]))
+                if u.path == "/ingest":
+                    if not engine.ready:
+                        return self._send(503, {"error": "model loading"})
+                    if not (MODELS_DIR / b["name"]).exists():
+                        return self._send(404, {"error": "IA introuvable"})
+                    learned = engine.ingest(b["name"], b.get("text") or "")
+                    return self._send(200, {"ok": True, "learned": learned})
                 if u.path == "/forget":
                     s = store_for_model(b["name"])
                     removed = s.clear() if b.get("all") else (1 if s.delete(int(b["id"])) else 0)
