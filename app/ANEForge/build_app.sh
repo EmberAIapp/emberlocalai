@@ -1,11 +1,11 @@
 #!/bin/bash
 # Build a double-clickable Ember.app from the SwiftUI executable.
-#   ./build_app.sh                 -> produces ./Ember.app (engine embedded)
-#   EMBED_ENGINE=0 ./build_app.sh  -> skip embedding (faster dev builds; uses ~/.ember-engine)
-# The Python venv + aneforge engine are bundled into Contents/Resources/engine so the .app
-# does NOT depend on the dev folder (§6) — proven by running with ~/.ember-engine removed.
-# Remaining for any-Mac distribution: a relocatable interpreter (python-build-standalone, the
-# bundled venv currently uses Homebrew python@3.14) + Apple signing/notarisation.
+#   ./build_app.sh                  -> dev build (embeds the Homebrew-based venv)
+#   DIST=1 ./build_app.sh           -> ANY-MAC build: embeds the relocatable Python
+#                                      (python-build-standalone) + repo engine + models
+#   EMBED_ENGINE=0 ./build_app.sh   -> binary only (uses ~/.ember-engine; fast dev iteration)
+# DIST=1 produces a fully self-contained .app (no Homebrew, models offline). The only remaining
+# distribution step is Apple Developer-ID signing + notarisation (see sign_and_notarize.sh).
 set -e
 cd "$(dirname "$0")"
 REPO="$(cd ../.. && pwd)"
@@ -25,18 +25,24 @@ if compgen -G "Resources/*.lproj" > /dev/null; then
   echo "localizations: $(ls -d Resources/*.lproj | xargs -n1 basename | tr '\n' ' ')"
 fi
 
-# Embed the engine (Python venv + aneforge) INSIDE the .app so it no longer depends
-# on the separate ~/.ember-engine dev folder (§6: "jamais de dépendance à l'environnement
-# de dev"). ditto preserves the venv's symlinks. NOTE: the venv's base interpreter is still
-# Homebrew python@3.14 — a fully any-Mac build needs an embedded relocatable Python
-# (python-build-standalone); that's the remaining distribution step.
-ENGSRC="$HOME/.ember-engine"
-if [ "${EMBED_ENGINE:-1}" = "1" ] && [ -d "$ENGSRC/venv" ] && [ -d "$ENGSRC/aneforge" ]; then
-  echo "Embedding engine ($(du -sh "$ENGSRC" | cut -f1))…"
+# Embed the engine INSIDE the .app (§6: no dependency on the dev folder). Two modes:
+#   DIST=1 → embed the RELOCATABLE Python (python-build-standalone, ~/.ember-engine-dist/python)
+#            + the repo aneforge → runs on ANY Mac, no Homebrew. (Distribution build.)
+#   else   → embed the dev venv (~/.ember-engine/venv) — fast, but depends on Homebrew python.
+RELOC="$HOME/.ember-engine-dist/python"
+ANEFORGE_SRC="$REPO/python/aneforge"
+if [ "${EMBED_ENGINE:-1}" = "1" ]; then
   mkdir -p "$APP/Contents/Resources/engine"
-  ditto "$ENGSRC/aneforge" "$APP/Contents/Resources/engine/aneforge"
-  ditto "$ENGSRC/venv"     "$APP/Contents/Resources/engine/venv"
-  echo "engine embedded"
+  ditto "$ANEFORGE_SRC" "$APP/Contents/Resources/engine/aneforge"
+  if [ "${DIST:-0}" = "1" ] && [ -x "$RELOC/bin/python3" ]; then
+    echo "Embedding RELOCATABLE Python ($(du -sh "$RELOC" | cut -f1)) — any-Mac…"
+    ditto "$RELOC" "$APP/Contents/Resources/engine/python"
+    echo "relocatable python embedded"
+  elif [ -d "$HOME/.ember-engine/venv" ]; then
+    echo "Embedding dev venv ($(du -sh "$HOME/.ember-engine/venv" | cut -f1))…"
+    ditto "$HOME/.ember-engine/venv" "$APP/Contents/Resources/engine/venv"
+    echo "venv embedded (Homebrew-based — use DIST=1 for a true any-Mac build)"
+  fi
 fi
 
 # Embed the Kokoro voice model so Ember's neural voice (Mode Her) works OFFLINE on any Mac.
@@ -66,14 +72,17 @@ cat > "$APP/Contents/MacOS/Ember" <<'SHIM'
 #!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ENG="$DIR/../Resources/engine"
-if [ -x "$ENG/venv/bin/python" ]; then
+if [ -x "$ENG/python/bin/python3" ]; then           # relocatable Python (any-Mac DIST build)
+  export ANEFORGE_PYTHON="${ANEFORGE_PYTHON:-$ENG/python/bin/python3}"
+  export ANEFORGE_PYTHONPATH="${ANEFORGE_PYTHONPATH:-$ENG}"
+elif [ -x "$ENG/venv/bin/python" ]; then             # dev venv embedded
   export ANEFORGE_PYTHON="${ANEFORGE_PYTHON:-$ENG/venv/bin/python}"
   export ANEFORGE_PYTHONPATH="${ANEFORGE_PYTHONPATH:-$ENG}"
-else
+else                                                 # dev-folder fallback
   export ANEFORGE_PYTHON="${ANEFORGE_PYTHON:-$HOME/.ember-engine/venv/bin/python}"
   export ANEFORGE_PYTHONPATH="${ANEFORGE_PYTHONPATH:-$HOME/.ember-engine}"
 fi
-# Use the embedded Kokoro voice model (offline) when present.
+# Use the embedded models (offline) when present.
 if [ -d "$ENG/hfcache" ]; then export HF_HOME="${HF_HOME:-$ENG/hfcache}"; fi
 exec "$DIR/Ember.bin"
 SHIM
