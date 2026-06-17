@@ -268,10 +268,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    func resolveAgentGate(_ allow: Bool) {
+    func resolveAgentGate(_ allow: Bool, remember: Bool = false) {
         guard let s = agentSession else { return }
         agentPendingGate = nil
-        Task { await engine.agentResume(session: s, allow: allow) }
+        Task { await engine.agentResume(session: s, allow: allow, remember: remember) }
+    }
+
+    /// Interpret a spoken reply to a pending permission gate (mains libres). nil = not a yes/no.
+    func voiceGateAnswer(_ s: String) -> Bool? {
+        let k = s.lowercased().trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        let yes = ["oui", "ouais", "ok", "okay", "d'accord", "daccord", "vas-y", "vas y", "vasy",
+                   "autorise", "autoriser", "autorisé", "go", "yes", "bien sûr", "bien sur", "carrément", "carrement"]
+        let no = ["non", "refuse", "refuser", "refusé", "annule", "annuler", "pas maintenant", "surtout pas", "no"]
+        if yes.contains(k) || yes.contains(where: { k.hasPrefix($0 + " ") }) { return true }
+        if no.contains(k) || no.contains(where: { k.hasPrefix($0 + " ") }) { return false }
+        return nil
     }
 
     func stopAgentTask() { agentTask?.cancel(); agentBusy = false; agentPendingGate = nil }

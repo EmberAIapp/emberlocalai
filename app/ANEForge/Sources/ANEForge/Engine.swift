@@ -170,11 +170,11 @@ actor Engine {
     }
 
     /// Resume a paused agent after a permission gate (allow / deny).
-    nonisolated func agentResume(session: String, allow: Bool) async {
+    nonisolated func agentResume(session: String, allow: Bool, remember: Bool = false) async {
         guard let url = URL(string: "http://127.0.0.1:\(port)/agent_resume") else { return }
         var req = URLRequest(url: url); req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["session": session, "allow": allow])
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["session": session, "allow": allow, "remember": remember])
         _ = try? await URLSession.shared.data(for: req)
     }
 

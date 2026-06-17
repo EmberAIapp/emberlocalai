@@ -36,8 +36,22 @@ struct HerView: View {
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
             speech.requestAuth()
             speech.onTranscript = { t in
-                if state.voiceSession && state.isStopPhrase(t) { state.voiceSession = false; speech.stopSpeaking() }
-                else { state.herSend(t) }
+                // A permission is waiting → answer it by voice ("oui"/"non"), truly mains libres.
+                if state.agentPendingGate != nil, let yes = state.voiceGateAnswer(t) {
+                    state.resolveAgentGate(yes, remember: yes)   // spoken "oui" also remembers the scope this session
+                } else if state.agentPendingGate != nil {
+                    return                                        // ignore chatter while a gate is open
+                } else if state.voiceSession && state.isStopPhrase(t) {
+                    state.voiceSession = false; speech.stopSpeaking()
+                } else {
+                    state.herSend(t)
+                }
+            }
+        }
+        .onChange(of: state.agentPendingGate?.id) { _, gate in
+            // In a voice session, open the mic so the user can say "oui"/"non" to the permission.
+            if gate != nil, state.voiceSession, !speech.listening, !speech.speaking {
+                speech.toggleListening(locale: micLocale())
             }
         }
         .onChange(of: speech.listening) { _, v in state.herListening = v }
@@ -292,6 +306,7 @@ private struct WorkInline: View {
                         ForEach(state.agentEvents) { e in
                             HerEventRow(event: e,
                                         onAllow: { state.resolveAgentGate(true) },
+                                        onAlways: { state.resolveAgentGate(true, remember: true) },
                                         onDeny: { state.resolveAgentGate(false) })
                         }
                     }
@@ -393,6 +408,7 @@ private struct OverviewCard: View {
 private struct HerEventRow: View {
     let event: AgentEvent
     let onAllow: () -> Void
+    var onAlways: () -> Void = {}
     let onDeny: () -> Void
 
     var body: some View {
@@ -490,10 +506,14 @@ private struct HerEventRow: View {
                 Spacer(minLength: 0)
             }
             HStack(spacing: 6) {
-                Button(action: onAllow) { gateLabel("Autoriser", fill: true) }.buttonStyle(.plain)
-                Button(action: onDeny)  { gateLabel("Refuser", fill: false) }.buttonStyle(.plain)
+                Button(action: onAllow)  { gateLabel("Autoriser", fill: true) }.buttonStyle(.plain)
+                Button(action: onAlways) { gateLabel("Toujours", fill: false) }.buttonStyle(.plain)
+                Button(action: onDeny)   { gateLabel("Refuser", fill: false) }.buttonStyle(.plain)
             }
             .padding(.leading, 27)
+            Text("« Toujours » = ne plus demander pour « \(event.scope) » cette session. Tu peux aussi répondre « oui » / « non » à voix haute.")
+                .font(.system(size: 10)).foregroundStyle(Color(hexv: 0x8a7a70))
+                .fixedSize(horizontal: false, vertical: true).padding(.leading, 27)
         }
         .padding(.vertical, 8).padding(.horizontal, 9)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hexv: 0xffc850).opacity(0.08)))

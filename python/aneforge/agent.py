@@ -145,6 +145,9 @@ SENSITIVE = {
     "spotlight_search": "Fichiers", "search_text": "Fichiers",
     "read_notes": "Notes", "read_reminders": "Rappels", "read_calendar": "Agenda",
 }
+# Scopes that must NEVER be auto-allowed / "remembered" — always per-action confirm (future P3:
+# sending mail/messages, calendar invites, trashing files, on-screen control).
+TIER3_SCOPES = {"Mail-envoi", "Messages-envoi", "Agenda-invitation", "Fichiers-suppr", "Écran"}
 
 
 def _exec(name, args, ia):

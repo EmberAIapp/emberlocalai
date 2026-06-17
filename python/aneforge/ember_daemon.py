@@ -139,19 +139,29 @@ class _AgentSession:
         self.q: queue.Queue = queue.Queue()
         self._gate = threading.Event()
         self._decision = False
+        self.allowed: set = set()      # scopes the user said "toujours" for THIS session
+        self._pending_scope = None
 
     def emit(self, event: dict):
         self.q.put(event)
 
     def ask_permission(self, tool: str, args: dict, scope: str) -> bool:
-        """Emit a gate event, then block until the user resumes (via /agent_resume)."""
+        """Emit a gate event, then block until the user resumes (via /agent_resume).
+        If the user already chose "toujours" for this scope this session, allow silently
+        (mains libres — no repeated prompt). Tier-3 scopes (send/delete) are never remembered."""
+        if scope and scope in self.allowed:
+            return True
+        self._pending_scope = scope
         self.emit({"type": "gate", "tool": tool, "args": args, "scope": scope})
         self._gate.clear()
         if not self._gate.wait(timeout=300):   # 5 min to decide, else deny
             return False
         return self._decision
 
-    def resume(self, allow: bool):
+    def resume(self, allow: bool, remember: bool = False):
+        from aneforge.agent import TIER3_SCOPES
+        if allow and remember and self._pending_scope and self._pending_scope not in TIER3_SCOPES:
+            self.allowed.add(self._pending_scope)   # don't ask again this session
         self._decision = allow
         self._gate.set()
 
@@ -486,7 +496,7 @@ def make_handler(engine: Engine):
                 if u.path == "/agent_resume":
                     sess = _AGENT_SESSIONS.get(b.get("session"))
                     if sess:
-                        sess.resume(bool(b.get("allow")))
+                        sess.resume(bool(b.get("allow")), bool(b.get("remember")))
                     return self._send(200, {"ok": True})
                 if u.path == "/forget":
                     s = store_for_model(b["name"])
