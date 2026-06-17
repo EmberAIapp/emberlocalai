@@ -149,3 +149,9 @@
 /* Hero apprentissage complet (added) */
 "Ouvre Ember sur ton Mac" = "Open Ember onto your Mac";
 "Choisis plusieurs dossiers d'un coup — Documents, Bureau, tes projets, un coffre Obsidian… Ember les lit et en apprend tout, **100% en local**. Tu peux arrêter quand tu veux." = "Pick several folders at once — Documents, Desktop, your projects, an Obsidian vault… Ember reads them and learns it all, **100% local**. You can stop whenever you want.";
+
+/* Apprentissage complet — tout le Mac (added) */
+"Apprends de tout ton Mac, **100% en local** — ou choisis des dossiers précis. Système, bibliothèques et caches sont exclus. Rien ne sort, tu peux arrêter quand tu veux ; tout est inspectable dans Mémoire." = "Learn from your whole Mac, **100% local** — or pick specific folders. System, libraries and caches are excluded. Nothing leaves, you can stop anytime; everything is inspectable in Memory.";
+"Tout mon Mac" = "My whole Mac";
+"Choisir des dossiers" = "Pick folders";
+"Donner l'accès complet au disque (Réglages système)" = "Grant Full Disk Access (System Settings)";

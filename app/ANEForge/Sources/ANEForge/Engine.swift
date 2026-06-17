@@ -105,10 +105,17 @@ actor Engine {
     }
 
     /// Learn from a file's text by extracting facts into memory. Returns the number learned.
-    func ingest(name: String, text: String) async throws -> Int {
+    func ingest(name: String, text: String, source: String = "file") async throws -> Int {
         struct R: Decodable { let learned: Int }
-        let data = try await post("/ingest", ["name": name, "text": text])
+        let data = try await post("/ingest", ["name": name, "text": text, "source": source])
         return (try? JSONDecoder().decode(R.self, from: data))?.learned ?? 0
+    }
+
+    /// Forget every fact a source taught (by path prefix). CRUD-delete on learning.
+    func forgetSource(name: String, prefix: String) async throws -> Int {
+        struct R: Decodable { let removed: Int }
+        let data = try await post("/forget_source", ["name": name, "prefix": prefix])
+        return (try? JSONDecoder().decode(R.self, from: data))?.removed ?? 0
     }
 
     /// REAL Apple Notes ingestion: the daemon reads the user's notes and extracts facts.

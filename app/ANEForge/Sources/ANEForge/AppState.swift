@@ -407,7 +407,7 @@ final class AppState: ObservableObject {
             trainingLog.append("Lecture de \(url.lastPathComponent)… (\(done)/\(files.count))")
             if let text = Self.readText(url),
                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                _ = try? await engine.ingest(name: name, text: text)
+                _ = try? await engine.ingest(name: name, text: text, source: url.path)
             }
         }
         let after = (try? await engine.memory(name: name)) ?? []
@@ -423,17 +423,37 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Flatten files + folders → the list of supported files to read (folders walked recursively).
+    // PROTECTION (mode plein-ordinateur) : on ne descend jamais dans le système, les
+    // bibliothèques, les caches ou les arbres de dev — que les vrais documents perso.
+    nonisolated static let excludedDirs: Set<String> = [
+        "Library", "Applications", "System", "node_modules", ".git", ".Trash",
+        "Caches", ".cache", "venv", ".venv", "site-packages", "DerivedData", "Pods",
+        ".build", ".npm", ".cargo", "dist", "build", "bin", "sbin", "Photos Library.photoslibrary",
+    ]
+
+    nonisolated static let maxFileBytes = 8_000_000   // sécurité : on ne lit pas un fichier énorme
+
+    /// Flatten files + folders → the list of supported files to read (folders walked recursively),
+    /// with STRICT safety: skips excluded system/dev/cache dirs, NEVER follows symbolic links
+    /// (pas d'évasion hors périmètre), and ignores oversized files.
     nonisolated static func expandToFiles(_ urls: [URL], cap: Int = fileCap) -> [URL] {
         let fm = FileManager.default
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
         var out: [URL] = []
         for u in urls {
             var isDir: ObjCBool = false
-            if fm.fileExists(atPath: u.path, isDirectory: &isDir), isDir.boolValue {
-                let en = fm.enumerator(at: u, includingPropertiesForKeys: nil,
+            guard fm.fileExists(atPath: u.path, isDirectory: &isDir) else { continue }
+            if isDir.boolValue {
+                let en = fm.enumerator(at: u, includingPropertiesForKeys: Array(keys),
                                        options: [.skipsHiddenFiles, .skipsPackageDescendants])
                 while let f = en?.nextObject() as? URL {
-                    if supportedExt.contains(f.pathExtension.lowercased()) { out.append(f) }
+                    let rv = try? f.resourceValues(forKeys: keys)
+                    if rv?.isSymbolicLink == true { en?.skipDescendants(); continue }   // ne suit pas les liens
+                    if excludedDirs.contains(f.lastPathComponent) { en?.skipDescendants(); continue }
+                    if supportedExt.contains(f.pathExtension.lowercased()),
+                       (rv?.fileSize ?? 0) <= maxFileBytes {
+                        out.append(f)
+                    }
                     if out.count >= cap * 2 { break }   // hard guard on enormous trees
                 }
             } else if supportedExt.contains(u.pathExtension.lowercased()) {
@@ -441,6 +461,22 @@ final class AppState: ObservableObject {
             }
         }
         return out
+    }
+
+    /// « Apprendre de tout mon Mac » (§4.A, plein-ordinateur LOCAL) — scanne les emplacements
+    /// personnels (Documents, Bureau, Téléchargements + Accueil), 100% en local, exclusions
+    /// appliquées, annulable. macOS demandera l'accès à chaque dossier protégé (ou via Accès
+    /// complet au disque). Rien ne sort de la machine.
+    func learnWholeMac() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let roots = ["Documents", "Desktop", "Downloads"]
+            .map { home.appendingPathComponent($0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !roots.isEmpty else {
+            errorText = "Emplacements personnels introuvables."; return
+        }
+        // Scan direct (sans persister 3 connecteurs fantômes) — annulable via « Arrêter ».
+        learn(roots, full: true)
     }
 
     nonisolated static func readText(_ url: URL) -> String? {
@@ -501,6 +537,27 @@ final class AppState: ObservableObject {
         dict.removeValue(forKey: path)
         UserDefaults.standard.set(dict, forKey: foldersKey(ia))
         loadConnectedFolders()
+    }
+
+    /// CRUD-delete on learning: forget every fact a connector taught, then remove the connector.
+    func forgetConnector(_ path: String) async {
+        guard let name = selected?.name else { return }
+        _ = try? await engine.forgetSource(name: name, prefix: path)
+        disconnectFolder(path)
+        await loadFacts(name)
+    }
+
+    /// « Remettre » : re-learn ALL connected folders at once (refresh the whole set).
+    func resyncAll() {
+        guard let ia = selected?.name,
+              let dict = UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data] else { return }
+        var urls: [URL] = []
+        for data in dict.values {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil,
+                                  bookmarkDataIsStale: &stale) { urls.append(url) }
+        }
+        if !urls.isEmpty { learn(urls, full: true) }
     }
 
     /// REAL Apple Notes connector (§4.A) — read the user's notes locally and learn facts from them.

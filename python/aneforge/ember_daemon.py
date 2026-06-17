@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import re
 import threading
@@ -450,9 +451,11 @@ class Engine:
             raw = self.mlx.chat(msgs, max_tokens=100)
         return _parse_fact_array(raw)
 
-    def ingest(self, name: str, text: str) -> int:
+    def ingest(self, name: str, text: str, source: str = "file") -> int:
         """§4.A — learn from a file by extracting facts into memory (reliable recall),
-        not by fine-tuning weights (§9.A: collapse-prone on a small local model)."""
+        not by fine-tuning weights (§9.A: collapse-prone on a small local model).
+        `source` tags each fact with its origin (e.g. the file path) so the user can later
+        FORGET exactly what a given connector/source taught (CRUD on learning)."""
         store = store_for_model(name)
         existing = [x.text for x in store.all()]
         learned = 0
@@ -464,7 +467,7 @@ class Engine:
                     # of something we already know.
                     if not _is_real_fact(f) or not _grounded(f, chunk) or _is_near_dup(f, existing):
                         continue
-                    if store.add(f, kind=classify_kind(f), source="file"):
+                    if store.add(f, kind=classify_kind(f), source=source):
                         existing.append(f); learned += 1
             except Exception:
                 continue
@@ -608,8 +611,16 @@ def make_handler(engine: Engine):
                         return self._send(503, {"error": "model loading"})
                     if not (MODELS_DIR / b["name"]).exists():
                         return self._send(404, {"error": "IA introuvable"})
-                    learned = engine.ingest(b["name"], b.get("text") or "")
+                    learned = engine.ingest(b["name"], b.get("text") or "", b.get("source") or "file")
                     return self._send(200, {"ok": True, "learned": learned})
+                if u.path == "/forget_source":
+                    # CRUD « delete » sur l'apprentissage : oublier tous les faits appris depuis une
+                    # source (chemin de fichier/dossier), par préfixe. 100% local.
+                    name = b["name"]; prefix = (b.get("prefix") or "").strip()
+                    if not (MODELS_DIR / name).exists() or not prefix:
+                        return self._send(200, {"ok": True, "removed": 0})
+                    removed = store_for_model(name).delete_by_source(prefix)
+                    return self._send(200, {"ok": True, "removed": removed})
                 if u.path == "/ingest_notes":
                     # REAL Apple Notes connector (§4.A) — read the user's notes via AppleScript,
                     # then run the same ingestion pipeline (text → facts). 100% local.
@@ -622,7 +633,7 @@ def make_handler(engine: Engine):
                     if not corpus:
                         return self._send(200, {"ok": True, "learned": 0, "notes": 0, "total": total,
                                                 "error": "Aucune note lisible — autorise l'accès à Notes."})
-                    learned = engine.ingest(b["name"], corpus)
+                    learned = engine.ingest(b["name"], corpus, source="notes:apple")
                     return self._send(200, {"ok": True, "learned": learned, "notes": used, "total": total})
                 if u.path == "/chat_stream":
                     if not engine.ready:
@@ -721,6 +732,11 @@ def make_handler(engine: Engine):
                     p.parent.mkdir(parents=True, exist_ok=True)
                     if key:
                         p.write_text(key)
+                        try:
+                            os.chmod(p, 0o600)              # §7 : secret lisible par le seul propriétaire
+                            os.chmod(p.parent, 0o700)
+                        except Exception:
+                            pass
                     elif p.exists():
                         p.unlink()
                     return self._send(200, {"ok": True, "has_key": bool(key)})

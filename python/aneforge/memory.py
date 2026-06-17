@@ -108,6 +108,14 @@ class FactStore:
         self._db.commit()
         return cur.rowcount
 
+    def delete_by_source(self, prefix: str) -> int:
+        """Forget every fact whose source starts with `prefix` (e.g. a connector's folder path).
+        Powers CRUD-delete on learning: « oublier ce que cette source a appris »."""
+        cur = self._db.execute("DELETE FROM facts WHERE source = ? OR source LIKE ?",
+                               (prefix, prefix + "%"))
+        self._db.commit()
+        return cur.rowcount
+
     # ---- queries ----
 
     def all(self) -> list[Fact]:

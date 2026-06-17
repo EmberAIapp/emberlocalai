@@ -27,7 +27,9 @@ struct IngestView: View {
                 }
 
                 // « Apprentissage complet » — son propre bloc héro, nettement distinct des connecteurs.
-                FullLearnHero(onPick: pickFolders)
+                FullLearnHero(onWholeMac: { state.learnWholeMac() },
+                              onPickFolders: pickFolders,
+                              onSettings: openDiskAccess)
                     .padding(.top, 26)
 
                 if state.isLearning {
@@ -63,6 +65,14 @@ struct IngestView: View {
         panel.message = "Choisis un dossier — Ember en apprendra les fichiers .txt/.md/.pdf, en local."
         if panel.runModal() == .OK, let url = panel.url {
             state.connectFolder(url)
+        }
+    }
+
+    // Ouvre le volet « Accès complet au disque » des Réglages système — c'est l'UTILISATEUR
+    // qui accorde (je ne touche jamais un réglage de sécurité système moi-même).
+    private func openDiskAccess() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -319,11 +329,23 @@ private struct ConnectedFolderCard: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
+            // Update : re-apprendre
             Button { state.resyncFolder(path) } label: {
                 TagPill(text: state.isLearning ? "…" : "Re-synchroniser",
                         fg: Color(hexv: 0x9fd9ad), bg: Color(hexv: 0x5fd07a).opacity(0.12))
             }
             .buttonStyle(.plain).disabled(state.isLearning)
+            .help("Re-apprendre ce dossier")
+            // Delete-data : oublier ce qu'il a appris (+ retire le connecteur)
+            Button { Task { await state.forgetConnector(path) } } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(hexv: 0xff8a7a))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain).disabled(state.isLearning)
+            .help("Oublier ce que ce dossier a appris, et le retirer")
+            // Delete-connector only : retire le connecteur, garde les faits
             Button { state.disconnectFolder(path) } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
@@ -331,6 +353,7 @@ private struct ConnectedFolderCard: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
+            .help("Retirer le connecteur (garder les faits appris)")
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.04)))
@@ -374,7 +397,9 @@ private struct ConnectFolderCard: View {
 // MARK: - « Apprentissage complet » — bloc héro (un MODE, pas un connecteur de plus)
 private struct FullLearnHero: View {
     @EnvironmentObject var state: AppState
-    var onPick: () -> Void
+    var onWholeMac: () -> Void
+    var onPickFolders: () -> Void
+    var onSettings: () -> Void
     @State private var hover = false
     @State private var pulse = false
 
@@ -411,28 +436,50 @@ private struct FullLearnHero: View {
                 Spacer(minLength: 0)
             }
 
-            Text("Choisis plusieurs dossiers d'un coup — Documents, Bureau, tes projets, un coffre Obsidian… Ember les lit et en apprend tout, **100% en local**. Tu peux arrêter quand tu veux.")
+            Text("Apprends de tout ton Mac, **100% en local** — ou choisis des dossiers précis. Système, bibliothèques et caches sont exclus. Rien ne sort, tu peux arrêter quand tu veux ; tout est inspectable dans Mémoire.")
                 .font(.system(size: 13.5)).foregroundStyle(Color(hexv: 0xcdbcb0))
                 .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 14)
 
-            // CTA proéminent (capsule dégradée braise)
-            Button(action: onPick) {
-                HStack(spacing: 8) {
-                    Image(systemName: "wand.and.stars").font(.system(size: 13, weight: .semibold))
-                    Text("Tout apprendre").font(.system(size: 13.5, weight: .bold))
-                    Image(systemName: "arrow.right").font(.system(size: 12, weight: .semibold))
+            // Deux actions : tout le Mac (puissant) ou des dossiers choisis (ciblé).
+            HStack(spacing: 10) {
+                Button(action: onWholeMac) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "externaldrive.fill.badge.person.crop").font(.system(size: 13, weight: .semibold))
+                        Text("Tout mon Mac").font(.system(size: 13.5, weight: .bold))
+                    }
+                    .foregroundStyle(Color(hexv: 0x1a0f0a))
+                    .padding(.vertical, 10).padding(.horizontal, 18)
+                    .background(Capsule().fill(LinearGradient(
+                        colors: [Color(hexv: 0xffb877), Color(hexv: 0xff6024)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing)))
+                    .shadow(color: Color(hexv: 0xff5a28).opacity(0.55), radius: 12, y: 5)
                 }
-                .foregroundStyle(Color(hexv: 0x1a0f0a))
-                .padding(.vertical, 10).padding(.horizontal, 20)
-                .background(Capsule().fill(LinearGradient(
-                    colors: [Color(hexv: 0xffb877), Color(hexv: 0xff6024)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)))
-                .shadow(color: Color(hexv: 0xff5a28).opacity(0.55), radius: 12, y: 5)
+                .buttonStyle(.plain).disabled(state.isLearning)
+
+                Button(action: onPickFolders) {
+                    Text("Choisir des dossiers")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hexv: 0xffd9b8))
+                        .padding(.vertical, 10).padding(.horizontal, 16)
+                        .overlay(Capsule().stroke(Color(hexv: 0xff965a).opacity(0.45), lineWidth: 1))
+                }
+                .buttonStyle(.plain).disabled(state.isLearning)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 16)
+
+            // Accès complet au disque — accordé par l'UTILISATEUR (jamais par l'app).
+            Button(action: onSettings) {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.open").font(.system(size: 10))
+                    Text("Donner l'accès complet au disque (Réglages système)")
+                        .font(.system(size: 11))
+                }
+                .foregroundStyle(Color(hexv: 0x9bb0c4))
             }
             .buttonStyle(.plain)
-            .disabled(state.isLearning)
-            .padding(.top, 16)
+            .padding(.top, 12)
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
