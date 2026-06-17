@@ -106,6 +106,35 @@ actor Engine {
         return (try? JSONDecoder().decode(R.self, from: data))?.learned ?? 0
     }
 
+    /// Token-by-token reply stream (§5.4). Yields text deltas as the model generates.
+    nonisolated func chatStream(name: String, prompt: String) -> AsyncThrowingStream<String, Error> {
+        let url = URL(string: "http://127.0.0.1:\(port)/chat_stream")!
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var req = URLRequest(url: url)
+                    req.httpMethod = "POST"
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "prompt": prompt])
+                    let (bytes, _) = try await URLSession.shared.bytes(for: req)
+                    var buf = [UInt8]()
+                    for try await b in bytes {
+                        buf.append(b)
+                        // emit as soon as the accumulated bytes form valid UTF-8 (handles multibyte)
+                        if let s = String(bytes: buf, encoding: .utf8) {
+                            continuation.yield(s)
+                            buf.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in task.cancel() }
+        }
+    }
+
     func chat(name: String, prompt: String) async throws -> ChatReply {
         try JSONDecoder().decode(ChatReply.self, from: try await post("/chat", ["name": name, "prompt": prompt]))
     }

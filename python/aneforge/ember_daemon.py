@@ -158,6 +158,32 @@ class Engine:
         threading.Thread(target=self._learn_async, args=(name, prompt), daemon=True).start()
         return {"answer": answer, "learned": [], "source": "mlx"}
 
+    def chat_stream(self, name: str, prompt: str):
+        """Yield the reply token-by-token (§5.4). Same memory/recall/learning as chat()."""
+        store = store_for_model(name)
+        is_q = ("?" in prompt) or any(prompt.lower().lstrip().startswith(w) for w in _QWORDS)
+        if is_q:
+            fact = store.best_match(prompt)
+            if fact is not None:
+                self._history.setdefault(name, []).append({"role": "user", "content": prompt})
+                self._history[name].append({"role": "assistant", "content": fact.text})
+                yield fact.text
+                return
+
+        hist = self._history.setdefault(name, [])
+        messages = [{"role": "system", "content": self._persona(name, prompt)}]
+        messages += hist[-8:]
+        messages.append({"role": "user", "content": prompt})
+        max_tokens = int(_load_settings(name).get("max_tokens", 220) or 220)
+        full = ""
+        with self._lock:  # serialize generation (MLX not thread-safe)
+            for delta in self.mlx.stream(messages, max_tokens=max_tokens):
+                full += delta
+                yield delta
+        hist.append({"role": "user", "content": prompt})
+        hist.append({"role": "assistant", "content": full})
+        threading.Thread(target=self._learn_async, args=(name, prompt), daemon=True).start()
+
     def _learn_async(self, name: str, message: str):
         try:
             facts = self._extract_facts(message)
@@ -275,6 +301,21 @@ def make_handler(engine: Engine):
                         return self._send(404, {"error": "IA introuvable"})
                     learned = engine.ingest(b["name"], b.get("text") or "")
                     return self._send(200, {"ok": True, "learned": learned})
+                if u.path == "/chat_stream":
+                    if not engine.ready:
+                        return self._send(503, {"error": "model loading"})
+                    name, prompt = b["name"], b["prompt"]   # KeyError here → outer 500 (pre-headers)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    try:
+                        for delta in engine.chat_stream(name, prompt):
+                            self.wfile.write(delta.encode("utf-8"))
+                            self.wfile.flush()
+                    except Exception:
+                        pass
+                    return
                 if u.path == "/forget":
                     s = store_for_model(b["name"])
                     removed = s.clear() if b.get("all") else (1 if s.delete(int(b["id"])) else 0)

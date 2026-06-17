@@ -275,13 +275,20 @@ final class AppState: ObservableObject {
     func send(_ prompt: String) async {
         guard let name = selected?.name, !prompt.isEmpty else { return }
         messages.append(ChatMessage(role: .user, text: prompt))
-        isBusy = true; defer { isBusy = false }
+        let idx = messages.count
+        messages.append(ChatMessage(role: .assistant, text: ""))   // fill token-by-token
+        isBusy = true                       // reflexion while waiting for the first token
+        defer { isBusy = false; talking = false }
+        var acc = ""
         do {
-            let reply = try await engine.chat(name: name, prompt: prompt)
-            messages.append(ChatMessage(role: .assistant, text: reply.answer))
-            lastLearned = reply.learned
+            for try await delta in engine.chatStream(name: name, prompt: prompt) {
+                if acc.isEmpty { isBusy = false; talking = true }   // first token → parle (ondulations §3)
+                acc += delta
+                if idx < messages.count { messages[idx].text = acc }
+            }
+            if acc.isEmpty, idx < messages.count { messages[idx].text = "…" }
         } catch {
-            messages.append(ChatMessage(role: .assistant, text: "⚠️ \(error.localizedDescription)"))
+            if idx < messages.count { messages[idx].text = "⚠️ \(error.localizedDescription)" }
         }
     }
 }

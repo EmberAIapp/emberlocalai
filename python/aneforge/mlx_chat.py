@@ -31,3 +31,12 @@ class MLXChat:
         prompt = self.tok.apply_chat_template(messages, add_generation_prompt=True)
         out = generate(self.model, self.tok, prompt=prompt, max_tokens=max_tokens, verbose=False)
         return out.strip()
+
+    def stream(self, messages: list[dict], max_tokens: int = 220):
+        """Yield text deltas token-by-token — for live, token-by-token replies (§5.4)."""
+        from mlx_lm import stream_generate
+        prompt = self.tok.apply_chat_template(messages, add_generation_prompt=True)
+        for resp in stream_generate(self.model, self.tok, prompt=prompt, max_tokens=max_tokens):
+            piece = getattr(resp, "text", None)
+            if piece:
+                yield piece
