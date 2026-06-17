@@ -85,6 +85,18 @@ final class AppState: ObservableObject {
     @Published var herSpeaking = false                 // a reply is playing (orb → parle)
     @Published var herSpeak: SpeakRequest?             // view observes → plays via SpeechController
     @Published var herMode = "chat"                    // last route decision (UI hint)
+    @Published var voiceSession = false                // continuous "voice mode" (mains-libres en boucle)
+
+    /// Spoken phrases that END the continuous voice session (said between turns).
+    private static let stopPhrases: Set<String> = [
+        "stop", "arrête", "arrete", "arrête-toi", "arrete toi", "tais-toi", "tais toi",
+        "c'est bon", "ça suffit", "ca suffit", "au revoir", "stop ember", "arrête ember"
+    ]
+    func isStopPhrase(_ s: String) -> Bool {
+        let k = s.lowercased().trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+        if Self.stopPhrases.contains(k) { return true }
+        return k == "stop" || k.hasPrefix("stop ") || k == "arrête" || k == "arrete"
+    }
 
     /// The language Ember should speak — follows the system, like the rest of the UI.
     var herLang: String { Locale.current.language.languageCode?.identifier ?? "fr" }
@@ -185,7 +197,7 @@ final class AppState: ObservableObject {
     func enterHer() {
         isHer = true; switcherOpen = false
         agentEvents = []; agentPendingGate = nil; agentBusy = false
-        herConversation = []; herListening = false; herSpeaking = false; herSpeak = nil
+        herConversation = []; herListening = false; herSpeaking = false; herSpeak = nil; voiceSession = false
         if !agentRunning { startAgent() }
     }
 
@@ -263,7 +275,7 @@ final class AppState: ObservableObject {
     }
 
     func stopAgentTask() { agentTask?.cancel(); agentBusy = false; agentPendingGate = nil }
-    func exitHer() { isHer = false }
+    func exitHer() { isHer = false; voiceSession = false }
 
     // MARK: - Le fil (agent orchestration)
 

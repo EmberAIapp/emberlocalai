@@ -26,6 +26,11 @@ final class SpeechController: ObservableObject {
     private var consumer: Task<Void, Never>?
     private var player: AVAudioPlayer?
     private var speakingOff: Task<Void, Never>?
+    private var silenceTimer: Task<Void, Never>?     // auto-finalize after a pause (hands-free)
+    private var finalizeFallback: Task<Void, Never>? // safety net if no final result arrives
+    private var heard = false                        // we've received at least one word
+    /// A pause longer than this (no new words) means the user finished speaking → auto-send.
+    var silenceSeconds: Double = 1.3
 
     /// Called (on the main actor) with the final transcript when the user stops speaking.
     var onTranscript: ((String) -> Void)?
@@ -87,9 +92,9 @@ final class SpeechController: ObservableObject {
         }
     }
 
-    // MARK: STT — listen (local)
+    // MARK: STT — listen (local). Mains-libres: a pause auto-sends; a click stops & sends.
     func toggleListening(locale: String = "fr-FR") {
-        if listening { stopListening() } else { startListening(locale: locale) }
+        if listening { finalize() } else { startListening(locale: locale) }
     }
 
     private func startListening(locale: String) {
@@ -98,7 +103,7 @@ final class SpeechController: ObservableObject {
         req.shouldReportPartialResults = true
         if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }   // stays local
         request = req
-        partial = ""
+        partial = ""; heard = false
 
         let (stream, cont) = AsyncStream.makeStream(of: STTUpdate.self)
         do {
@@ -112,16 +117,50 @@ final class SpeechController: ObservableObject {
 
         consumer = Task { @MainActor in
             for await u in stream {
-                if let t = u.text { self.partial = t }
+                if let t = u.text, !t.isEmpty {
+                    self.partial = t
+                    self.heard = true
+                    self.scheduleSilenceFinalize()      // each new word resets the pause timer
+                }
                 if u.isFinal {
                     let t = u.text
-                    self.cleanup()
-                    if let t, !t.isEmpty { self.onTranscript?(t) }
+                    self.finishListening(send: t, fallbackToPartial: false)
                 } else if u.failed {
-                    self.cleanup()
+                    self.finishListening(send: nil, fallbackToPartial: true)
                 }
             }
         }
+    }
+
+    /// After a pause (no new words), tell the recognizer the audio is done → it emits a final
+    /// result, which we turn into a send. This is what makes it truly hands-free.
+    private func scheduleSilenceFinalize() {
+        silenceTimer?.cancel()
+        silenceTimer = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(silenceSeconds * 1_000_000_000))
+            guard !Task.isCancelled, self.listening, self.heard else { return }
+            self.finalize()
+        }
+    }
+
+    /// Stop accepting audio and produce a final transcript (used by the pause timer AND by a
+    /// manual mic tap). A fallback sends the current partial if no final result arrives.
+    private func finalize() {
+        guard listening else { return }
+        silenceTimer?.cancel()
+        request?.endAudio()
+        finalizeFallback?.cancel()
+        finalizeFallback = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            guard !Task.isCancelled, self.listening else { return }
+            self.finishListening(send: self.partial, fallbackToPartial: false)
+        }
+    }
+
+    private func finishListening(send text: String?, fallbackToPartial: Bool) {
+        let out = (text?.isEmpty == false ? text : nil) ?? (fallbackToPartial ? partial : nil)
+        cleanup()
+        if let out, !out.isEmpty { onTranscript?(out) }
     }
 
     nonisolated private static func beginRecognition(
@@ -142,17 +181,22 @@ final class SpeechController: ObservableObject {
         }
     }
 
+    /// Hard stop without sending (e.g. leaving the screen).
     func stopListening() {
+        silenceTimer?.cancel(); finalizeFallback?.cancel()
         request?.endAudio()
         cleanup()
     }
 
     private func cleanup() {
+        silenceTimer?.cancel(); silenceTimer = nil
+        finalizeFallback?.cancel(); finalizeFallback = nil
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         task?.cancel(); task = nil
         consumer?.cancel(); consumer = nil
         request = nil
+        heard = false
         listening = false
     }
 }
