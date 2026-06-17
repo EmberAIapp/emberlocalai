@@ -234,6 +234,16 @@ actor Engine {
         return (j["profile"] as? String) ?? ""
     }
 
+    /// Add a fact the user typed by hand (stored verbatim, source "explicit").
+    func addFact(name: String, text: String) async throws {
+        _ = try await post("/add_fact", ["name": name, "text": text])
+    }
+
+    /// Live search over the user's facts — keyword + multilingual semantic ranking.
+    func searchFacts(name: String, query: String) async throws -> [Fact] {
+        try JSONDecoder().decode([Fact].self, from: try await post("/search", ["name": name, "q": query]))
+    }
+
     func forget(name: String, id: Int) async throws {
         _ = try await post("/forget", ["name": name, "id": id])
     }

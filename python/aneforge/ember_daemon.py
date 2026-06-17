@@ -647,6 +647,25 @@ def make_handler(engine: Engine):
                     if sess:
                         sess.resume(bool(b.get("allow")), bool(b.get("remember")))
                     return self._send(200, {"ok": True})
+                if u.path == "/add_fact":
+                    # explicit fact the USER typed in Mémoire → store it VERBATIM. No grounding
+                    # / hallucination filter here: the user stated it deliberately, it is not the
+                    # small model's guess. Dedup is automatic (UNIQUE text constraint → add()=None).
+                    name = b["name"]; text = (b.get("text") or "").strip()
+                    if not (MODELS_DIR / name).exists():
+                        return self._send(404, {"error": "IA introuvable"})
+                    if not text:
+                        return self._send(400, {"error": "texte vide"})
+                    f = store_for_model(name).add(text, kind=(b.get("kind") or "misc"), source="explicit")
+                    return self._send(200, {"ok": True, "added": bool(f), "id": (f.id if f else None)})
+                if u.path == "/search":
+                    # Mémoire search box — hybrid keyword + multilingual-semantic ranking.
+                    name = b["name"]; q = b.get("q") or b.get("query") or ""
+                    if not (MODELS_DIR / name).exists():
+                        return self._send(200, [])
+                    facts = store_for_model(name).search(q)
+                    return self._send(200, [{"id": f.id, "kind": f.kind, "text": f.text,
+                                             "source": f.source} for f in facts])
                 if u.path == "/forget":
                     s = store_for_model(b["name"])
                     removed = s.clear() if b.get("all") else (1 if s.delete(int(b["id"])) else 0)

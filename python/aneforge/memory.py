@@ -135,6 +135,31 @@ class FactStore:
              "une", "un", "que", "qui", "pour", "avec", "dans", "vous", "tu", "je",
              "the", "what", "who", "where", "your", "you", "name", "and", "how"}
 
+    def search(self, query: str, limit: int = 100) -> list[Fact]:
+        """Rank the stored facts by relevance to a free-text query — keyword overlap PLUS
+        multilingual semantic similarity (the local embedder), so « métier » surfaces
+        « infirmière ». Best-first; an empty query returns every fact in normal order.
+        Powers the Mémoire search box (live filter)."""
+        facts = self.all()
+        q = query.strip()
+        if not q or not facts:
+            return facts
+        qw = {w.lower() for w in re.findall(r"\w+", q) if len(w) > 1} - self._STOP
+        sims = _semantic_scores(q, [f.text for f in facts])
+        scored: list[tuple[float, int, Fact]] = []
+        for i, f in enumerate(facts):
+            fw = {w.lower() for w in re.findall(r"\w+", f.text)}
+            overlap = len(qw & fw)
+            kw = overlap / len(qw) if qw else 0.0          # 0..1 keyword overlap
+            sem = sims[i] if sims is not None else 0.0      # cosine, ~ -1..1
+            # keep a fact if a keyword matched OR it's semantically close enough.
+            # 0.12: model2vec static embeddings score true cross-term matches low
+            # (métier→infirmière ≈0.15, sport→randonnée ≈0.14) while noise sits ≤0.11.
+            if overlap > 0 or sem >= 0.12:
+                scored.append((max(kw, sem), i, f))
+        scored.sort(key=lambda s: (-s[0], s[1]))
+        return [f for _, _, f in scored][:limit]
+
     def best_match(self, query: str) -> Optional[Fact]:
         """The fact most relevant to a question — hybrid keyword + semantic match.
         Lets the chat answer fact-questions reliably from memory (not the LLM),

@@ -216,16 +216,44 @@ final class AppState: ObservableObject {
     // MARK: - Memory
 
     @Published var profileText = ""        // real auto-profile (built while idle)
+    @Published var factQuery = ""          // Mémoire search box text
+    @Published var searchResults: [Fact] = []
+    @Published var searching = false
+
+    /// Facts to show in Mémoire: the search results when a query is active, else everything.
+    var visibleFacts: [Fact] {
+        factQuery.trimmingCharacters(in: .whitespaces).isEmpty ? facts : searchResults
+    }
 
     func loadFacts(_ name: String) async {
         facts = (try? await engine.memory(name: name)) ?? []
         profileText = await engine.profile(name: name)
     }
 
+    /// Add a fact the user typed by hand, then refresh (the new fact must show immediately).
+    func addFact(_ text: String) async {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, let name = selected?.name else { return }
+        try? await engine.addFact(name: name, text: t)
+        await loadFacts(name)
+        if !factQuery.trimmingCharacters(in: .whitespaces).isEmpty { await runSearch(factQuery) }
+    }
+
+    /// Debounced live search (called from the view as the query changes).
+    func runSearch(_ query: String) async {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard let name = selected?.name else { return }
+        if q.isEmpty { searchResults = []; searching = false; return }
+        searching = true
+        searchResults = (try? await engine.searchFacts(name: name, query: q)) ?? []
+        searching = false
+    }
+
     func forget(_ fact: Fact) async {
         guard let name = selected?.name else { return }
         try? await engine.forget(name: name, id: fact.id)
         await loadFacts(name)
+        if !factQuery.trimmingCharacters(in: .whitespaces).isEmpty { await runSearch(factQuery) }
     }
 
     func forgetAll() async {

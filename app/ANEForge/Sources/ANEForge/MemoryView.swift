@@ -50,15 +50,29 @@ struct MemoryView: View {
     }
 
     // gap:12px; margin:22px 0; padding:11px 16px; radius:14; bg .04 / border .08
+    // REAL search: a TextField bound to state.factQuery, debounced → semantic search (§4).
     private var searchBar: some View {
         HStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 13))
                 .foregroundStyle(Color(hexv: 0x8a7d75))
-            Text("Rechercher un fait — « métier » trouve « boulanger » (sémantique multilingue)")
+            TextField("", text: $state.factQuery, prompt:
+                Text("Rechercher un fait — « métier » trouve « infirmière » (sémantique multilingue)")
+                    .foregroundColor(Color(hexv: 0x8a7d75)))
+                .textFieldStyle(.plain)
                 .font(.system(size: 14))
-                .foregroundStyle(Color(hexv: 0x8a7d75))
-            Spacer(minLength: 0)
+                .foregroundStyle(Color(hexv: 0xe7d8cb))
+            if state.searching {
+                ProgressView().controlSize(.small).scaleEffect(0.7)
+            }
+            if !state.factQuery.isEmpty {
+                Button { state.factQuery = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(hexv: 0x8a7d75))
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.vertical, 11)
         .padding(.horizontal, 16)
@@ -71,6 +85,13 @@ struct MemoryView: View {
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
         .padding(.vertical, 22)
+        // Debounce: rerun on every keystroke, but wait ~280ms; .task(id:) cancels the
+        // previous (pending) search when the query changes again.
+        .task(id: state.factQuery) {
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            if Task.isCancelled { return }
+            await state.runSearch(state.factQuery)
+        }
     }
 
     // grid-template-columns:1.15fr 1fr; gap:26px.
@@ -104,23 +125,29 @@ private struct MemoryFactsColumn: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
+        let querying = !state.factQuery.trimmingCharacters(in: .whitespaces).isEmpty
+        let shown = state.visibleFacts
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("Faits · \(state.facts.count)")     // 11/700, tracking .8, #7c6f67
+            SectionLabel(querying ? "Résultats · \(shown.count)"
+                                  : "Faits · \(state.facts.count)")   // 11/700, tracking .8
                 .padding(.bottom, 13)                         // label margin-bottom:13px
-            if state.facts.isEmpty {
-                Text("Rien encore — apprends-lui des choses, ou discute.")
+            if shown.isEmpty {
+                Text(querying ? "Aucun fait ne correspond à « \(state.factQuery) »."
+                              : "Rien encore — apprends-lui des choses, ou discute.")
                     .font(.emberSerif(15, weight: .regular).italic())
                     .foregroundStyle(Color.emberMuted)
                     .padding(.vertical, 6)
             } else {
                 VStack(spacing: 9) {                          // facts list gap:9px
-                    ForEach(state.facts) { fact in
+                    ForEach(shown) { fact in
                         MemoryFactRow(fact: fact)
                     }
                 }
             }
-            MemoryAddFactRow()
-                .padding(.top, 12)                            // add-row margin-top:12px
+            if !querying {                                    // no manual-add while filtering
+                MemoryAddFactRow()
+                    .padding(.top, 12)                        // add-row margin-top:12px
+            }
         }
     }
 }
@@ -202,36 +229,58 @@ private struct MemoryFactRow: View {
 }
 
 // gap:10px; margin-top:12px; padding:11px 15px; radius:12; 1px dashed rgba(255,150,90,0.25); #c79a82; 13.5px
+// REAL: an inline text field. Enter (or the "Ajouter" button) stores the fact verbatim.
 private struct MemoryAddFactRow: View {
+    @EnvironmentObject var state: AppState
+    @State private var text = ""
     @State private var hovering = false
+    @FocusState private var focused: Bool
+
+    private func submit() {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        text = ""
+        Task { await state.addFact(t) }
+    }
 
     var body: some View {
-        Button {
-        } label: {
-            HStack(spacing: 10) {
-                Text("+")
-                    .font(.system(size: 15))
-                Text("Ajouter un fait")
-                    .font(.system(size: 13.5))
-                Spacer(minLength: 0)
+        HStack(spacing: 10) {
+            Text("+")
+                .font(.system(size: 15))
+                .foregroundStyle(Color(hexv: 0xc79a82))
+            TextField("", text: $text, prompt:
+                Text("Ajouter un fait (ex. « je suis allergique aux arachides »)")
+                    .foregroundColor(Color(hexv: 0xc79a82).opacity(0.85)))
+                .textFieldStyle(.plain)
+                .font(.system(size: 13.5))
+                .foregroundStyle(Color(hexv: 0xe7d8cb))
+                .focused($focused)
+                .onSubmit(submit)
+            if !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                Button(action: submit) {
+                    Text("Ajouter")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hexv: 0xe8b48f))
+                }
+                .buttonStyle(.plain)
             }
-            .foregroundStyle(Color(hexv: 0xc79a82))
-            .padding(.vertical, 11)
-            .padding(.horizontal, 15)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(hovering ? Color(hexv: 0xff783c).opacity(0.06) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(
-                        Color(hexv: 0xff965a).opacity(0.25),
-                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                    )
-            )
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 11)
+        .padding(.horizontal, 15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill((hovering || focused) ? Color(hexv: 0xff783c).opacity(0.06) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(
+                    Color(hexv: 0xff965a).opacity(focused ? 0.45 : 0.25),
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                )
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
         .onHover { hovering = $0 }
     }
 }
