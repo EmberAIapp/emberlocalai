@@ -64,6 +64,14 @@ if [ "${EMBED_ENGINE:-1}" = "1" ] && [ -d "$QWEN_SRC" ]; then
   ditto "$QWEN_SRC" "$APP/Contents/Resources/engine/hfcache/hub/models--mlx-community--Qwen2.5-1.5B-Instruct-4bit"
   echo "chat model embedded"
 fi
+# Embed the multilingual semantic embedder so cross-lingual memory recall works OFFLINE.
+EMB_SRC="$HOME/.cache/huggingface/hub/models--minishlab--potion-multilingual-128M"
+if [ "${EMBED_ENGINE:-1}" = "1" ] && [ -d "$EMB_SRC" ]; then
+  echo "Embedding semantic embedder ($(du -sh "$EMB_SRC" | cut -f1))…"
+  mkdir -p "$APP/Contents/Resources/engine/hfcache/hub"
+  ditto "$EMB_SRC" "$APP/Contents/Resources/engine/hfcache/hub/models--minishlab--potion-multilingual-128M"
+  echo "embedder embedded"
+fi
 
 # The real Swift binary becomes a helper; a launcher shim points the engine env vars
 # at the EMBEDDED engine first, falling back to the dev folder if not bundled.
