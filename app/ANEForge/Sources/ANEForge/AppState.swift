@@ -60,7 +60,19 @@ final class AppState: ObservableObject {
     // Réglages (UI state — persona + length are persisted to the engine on save)
     @Published var selectedModelIndex = 1
     @Published var personaSel = "Calme"
-    @Published var permissions = DesignData.defaultPermissions
+    @Published var permissions = AppState.loadPermissions()
+
+    static func loadPermissions() -> [String: Bool] {
+        (UserDefaults.standard.dictionary(forKey: "ember.permissions") as? [String: Bool])
+            ?? DesignData.defaultPermissions
+    }
+    /// Set a permission and persist it (revocable + sticky). OFF → the agent hard-denies that scope.
+    func setPermission(_ key: String, _ on: Bool) {
+        permissions[key] = on
+        UserDefaults.standard.set(permissions, forKey: "ember.permissions")
+    }
+    /// Scopes the user turned OFF → sent to the agent as a hard blocklist.
+    var blockedScopes: [String] { permissions.filter { !$0.value }.map(\.key) }
 
     // Engine config (real): which local model is loaded / (re)loading, and whether the API key is set.
     @Published var currentModelId = ""
@@ -318,7 +330,7 @@ final class AppState: ObservableObject {
         agentTask = Task { [weak self] in
             guard let self else { return }
             do {
-                for try await e in engine.agentStream(name: name, task: t, trust: trustMode) {
+                for try await e in engine.agentStream(name: name, task: t, trust: trustMode, blocked: blockedScopes) {
                     if e.type == "session" { self.agentSession = e.detail; continue }
                     if e.type == "gate" { self.agentPendingGate = e }
                     self.agentEvents.append(e)

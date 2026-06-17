@@ -215,6 +215,7 @@ class _AgentSession:
         self._decision = False
         self.allowed: set = set()      # remembered "toujours" keys for THIS session (scope OR scope+path)
         self.auto_allow = False        # "mode confiance": auto-allow every non-Tier-3 scope
+        self.blocked: set = set()      # scopes the user turned OFF in Réglages → HARD-denied
         self._pending_key = None
 
     def emit(self, event: dict):
@@ -226,6 +227,11 @@ class _AgentSession:
         EXCEPT Tier-3 scopes (cloud egress, send/delete/screen…), which ALWAYS confirm explicitly.
         Remembering is keyed by scope+PATH so authorising one file never opens every file."""
         from aneforge.agent import TIER3_SCOPES
+        # Réglages : un périmètre désactivé est REFUSÉ d'office (révocable, granulaire).
+        if scope and scope in self.blocked:
+            self.emit({"type": "observation", "name": tool,
+                       "text": f"Refusé : « {scope} » est désactivé dans tes Réglages.", "denied": True})
+            return False
         arg = _primary_arg(args)
         path_key = f"{scope}\x1f{arg}" if arg else scope
         if scope and scope not in TIER3_SCOPES:
@@ -678,6 +684,7 @@ def make_handler(engine: Engine):
                     sid = b.get("session") or uuid.uuid4().hex
                     sess = _AgentSession()
                     sess.auto_allow = bool(b.get("trust"))   # "mode confiance" → no prompt (non-Tier-3)
+                    sess.blocked = set(b.get("blocked") or [])   # périmètres OFF dans Réglages → refusés
                     _AGENT_SESSIONS[sid] = sess
                     self.send_response(200)
                     self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")

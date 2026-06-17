@@ -159,14 +159,14 @@ actor Engine {
     }
 
     /// Mode Her — stream the agent's events (plan, tool, observation, gate, done) as NDJSON.
-    nonisolated func agentStream(name: String, task: String, trust: Bool = false) -> AsyncThrowingStream<AgentEvent, Error> {
+    nonisolated func agentStream(name: String, task: String, trust: Bool = false, blocked: [String] = []) -> AsyncThrowingStream<AgentEvent, Error> {
         let url = URL(string: "http://127.0.0.1:\(port)/agent_stream")!
         return AsyncThrowingStream { continuation in
             let job = Task {
                 do {
                     var req = URLRequest(url: url); req.httpMethod = "POST"
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "task": task, "trust": trust])
+                    req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "task": task, "trust": trust, "blocked": blocked])
                     let (bytes, _) = try await URLSession.shared.bytes(for: req)
                     for try await line in bytes.lines {
                         guard let d = line.data(using: .utf8),

@@ -36,16 +36,22 @@ enum DesignData {
         let desc: String
     }
 
+    // Keys MATCH the agent's real SENSITIVE scopes (agent.py) → un toggle OFF bloque vraiment
+    // le périmètre côté agent (granulaire + révocable, §4.E/§7).
     static let permissions: [Permission] = [
         .init(key: "Fichiers", icon: "📂", desc: "Lire et organiser tes fichiers"),
         .init(key: "Apps", icon: "🪟", desc: "Ouvrir et piloter des apps"),
-        .init(key: "Recherche", icon: "🔎", desc: "Recherche web (désactivé = 100% local)"),
-        .init(key: "Calendrier", icon: "📅", desc: "Lire et créer des événements"),
-        .init(key: "Automatisations", icon: "⚡", desc: "Enchaîner plusieurs actions"),
+        .init(key: "Notes", icon: "🗒️", desc: "Lire et créer des notes"),
+        .init(key: "Rappels", icon: "✅", desc: "Lire et créer des rappels"),
+        .init(key: "Agenda", icon: "📅", desc: "Lire et créer des événements"),
+        .init(key: "Mémoire", icon: "🧠", desc: "Lire ta mémoire personnelle"),
+        .init(key: "Mail", icon: "✉️", desc: "Préparer des brouillons (jamais envoyer)"),
+        .init(key: "Raccourcis", icon: "⚡", desc: "Lancer des raccourcis Apple"),
     ]
 
     static let defaultPermissions: [String: Bool] = [
-        "Fichiers": true, "Apps": true, "Recherche": false, "Calendrier": true, "Automatisations": false,
+        "Fichiers": true, "Apps": true, "Notes": true, "Rappels": true,
+        "Agenda": true, "Mémoire": true, "Mail": true, "Raccourcis": false,
     ]
 
     // Real, neutral starting points (no fictional café scenario) — work for anyone.

@@ -284,8 +284,7 @@ struct SettingsScreen: View {
                     desc: p.desc,
                     isOn: state.permissions[p.key] ?? false
                 ) {
-                    let current = state.permissions[p.key] ?? false
-                    state.permissions[p.key] = !current
+                    state.setPermission(p.key, !(state.permissions[p.key] ?? false))
                 }
             }
         }
