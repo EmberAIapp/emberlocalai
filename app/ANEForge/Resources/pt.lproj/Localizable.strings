@@ -145,3 +145,7 @@
 "Choisis plusieurs dossiers d'un coup (Documents, Bureau, projets…) — Ember apprend tout, en local" = "Escolhe várias pastas de uma vez (Documentos, Ambiente de trabalho, projetos…) — o Ember aprende tudo, em local";
 "Tout apprendre" = "Aprender tudo";
 "Arrêter" = "Parar";
+
+/* Hero apprentissage complet (added) */
+"Ouvre Ember sur ton Mac" = "Abre o Ember ao teu Mac";
+"Choisis plusieurs dossiers d'un coup — Documents, Bureau, tes projets, un coffre Obsidian… Ember les lit et en apprend tout, **100% en local**. Tu peux arrêter quand tu veux." = "Escolhe várias pastas de uma vez — Documentos, Ambiente de trabalho, os teus projetos, um cofre Obsidian… o Ember lê-as e aprende tudo, **100% local**. Podes parar quando quiseres.";

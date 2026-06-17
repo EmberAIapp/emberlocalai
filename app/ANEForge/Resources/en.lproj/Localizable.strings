@@ -145,3 +145,7 @@
 "Choisis plusieurs dossiers d'un coup (Documents, Bureau, projets…) — Ember apprend tout, en local" = "Pick several folders at once (Documents, Desktop, projects…) — Ember learns it all, locally";
 "Tout apprendre" = "Learn everything";
 "Arrêter" = "Stop";
+
+/* Hero apprentissage complet (added) */
+"Ouvre Ember sur ton Mac" = "Open Ember onto your Mac";
+"Choisis plusieurs dossiers d'un coup — Documents, Bureau, tes projets, un coffre Obsidian… Ember les lit et en apprend tout, **100% en local**. Tu peux arrêter quand tu veux." = "Pick several folders at once — Documents, Desktop, your projects, an Obsidian vault… Ember reads them and learns it all, **100% local**. You can stop whenever you want.";

@@ -24,8 +24,11 @@ struct IngestView: View {
                         ConnectedFolderCard(path: path)
                     }
                     ConnectFolderCard(onPick: pickFolder)
-                    FullLearnCard(onPick: pickFolders)
                 }
+
+                // « Apprentissage complet » — son propre bloc héro, nettement distinct des connecteurs.
+                FullLearnHero(onPick: pickFolders)
+                    .padding(.top, 26)
 
                 if state.isLearning {
                     progressPanel
@@ -368,44 +371,87 @@ private struct ConnectFolderCard: View {
     }
 }
 
-// MARK: - « Apprentissage complet » — ouverture (choisie) sur plusieurs dossiers du Mac
-private struct FullLearnCard: View {
+// MARK: - « Apprentissage complet » — bloc héro (un MODE, pas un connecteur de plus)
+private struct FullLearnHero: View {
     @EnvironmentObject var state: AppState
     var onPick: () -> Void
     @State private var hover = false
+    @State private var pulse = false
 
     var body: some View {
-        Button(action: onPick) {
-            HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
+            // En-tête : icône braise rayonnante + titre éditorial + badge MODE
+            HStack(alignment: .center, spacing: 14) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .fill(Color(hexv: 0xff783c).opacity(0.18))
-                    Image(systemName: "sparkles.rectangle.stack.fill")
-                        .font(.system(size: 15)).foregroundStyle(Color(hexv: 0xffb877))
+                    Circle()
+                        .fill(RadialGradient(
+                            colors: [Color(hexv: 0xffcf9a), Color(hexv: 0xff6a26), Color(hexv: 0xc42a12)],
+                            center: UnitPoint(x: 0.35, y: 0.30), startRadius: 1, endRadius: 26))
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.white)
                 }
-                .frame(width: 38, height: 38)
+                .frame(width: 46, height: 46)
+                .shadow(color: Color(hexv: 0xff6e32).opacity(pulse ? 0.75 : 0.45), radius: pulse ? 16 : 9)
+
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Apprentissage complet")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hexv: 0xecd9c9))
-                    Text("Choisis plusieurs dossiers d'un coup (Documents, Bureau, projets…) — Ember apprend tout, en local")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(hexv: 0x8a7d75))
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Text("Apprentissage complet")
+                            .font(.emberSerif(21))
+                            .foregroundStyle(Color(hexv: 0xf5e7db))
+                        Text("MODE")
+                            .font(.system(size: 9, weight: .bold)).tracking(1)
+                            .foregroundStyle(Color(hexv: 0xffd9b8))
+                            .padding(.vertical, 2).padding(.horizontal, 6)
+                            .background(Capsule().fill(Color(hexv: 0xff783c).opacity(0.22)))
+                    }
+                    Text("Ouvre Ember sur ton Mac")
+                        .font(.system(size: 12.5)).foregroundStyle(Color(hexv: 0xc79a82))
                 }
-                Spacer(minLength: 8)
-                TagPill(text: "Tout apprendre",
-                        fg: Color(hexv: 0xffd9b8), bg: Color(hexv: 0xff783c).opacity(0.22))
+                Spacer(minLength: 0)
             }
-            .padding(16)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(hexv: 0xff783c).opacity(hover ? 0.10 : 0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(hexv: 0xff965a).opacity(hover ? 0.40 : 0.22), lineWidth: 1))
+
+            Text("Choisis plusieurs dossiers d'un coup — Documents, Bureau, tes projets, un coffre Obsidian… Ember les lit et en apprend tout, **100% en local**. Tu peux arrêter quand tu veux.")
+                .font(.system(size: 13.5)).foregroundStyle(Color(hexv: 0xcdbcb0))
+                .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 14)
+
+            // CTA proéminent (capsule dégradée braise)
+            Button(action: onPick) {
+                HStack(spacing: 8) {
+                    Image(systemName: "wand.and.stars").font(.system(size: 13, weight: .semibold))
+                    Text("Tout apprendre").font(.system(size: 13.5, weight: .bold))
+                    Image(systemName: "arrow.right").font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(Color(hexv: 0x1a0f0a))
+                .padding(.vertical, 10).padding(.horizontal, 20)
+                .background(Capsule().fill(LinearGradient(
+                    colors: [Color(hexv: 0xffb877), Color(hexv: 0xff6024)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)))
+                .shadow(color: Color(hexv: 0xff5a28).opacity(0.55), radius: 12, y: 5)
+            }
+            .buttonStyle(.plain)
+            .disabled(state.isLearning)
+            .padding(.top, 16)
         }
-        .buttonStyle(.plain)
-        .disabled(state.isLearning)
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [Color(hexv: 0xff783c).opacity(hover ? 0.16 : 0.11),
+                             Color(hexv: 0xff5a28).opacity(0.03)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Color(hexv: 0xff965a).opacity(hover ? 0.45 : 0.28), lineWidth: 1)
+        )
+        .shadow(color: Color(hexv: 0xff5a28).opacity(0.18), radius: 22, y: 10)
         .onHover { hover = $0 }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { pulse = true }
+        }
     }
 }
 
