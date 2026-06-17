@@ -17,6 +17,11 @@ struct MemoryView: View {
             .padding(.bottom, 40)               // container padding 34px 48px 40px
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Reload facts whenever this screen appears or the selected IA changes — otherwise
+        // facts learned during a chat don't show until something else refreshes them.
+        .task(id: state.selected?.name) {
+            if let n = state.selected?.name { await state.loadFacts(n) }
+        }
     }
 
     // gap:16px; align-items:center

@@ -3,7 +3,14 @@ import AVFoundation
 import Speech
 
 /// Mains-libres voice for Mode Her (§4.E): local STT via SFSpeechRecognizer (on-device when
-/// available) + local TTS via AVSpeechSynthesizer. No cloud — Apple's on-device speech.
+/// available) + local TTS via AVSpeechSynthesizer. No cloud.
+///
+/// The class is @MainActor (for @Published + UI), but Apple's system callbacks fire on
+/// background queues. To avoid the dispatch_assert_queue trap (a @MainActor closure run
+/// off-main) AND Swift-6 "sending self" errors, the callbacks capture ONLY Sendable values
+/// (via a continuation / an AsyncStream) — never `self` — and a MainActor task applies them.
+private struct STTUpdate: Sendable { var text: String?; var isFinal: Bool; var failed: Bool }
+
 @MainActor
 final class SpeechController: ObservableObject {
     @Published var listening = false
@@ -14,17 +21,21 @@ final class SpeechController: ObservableObject {
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var consumer: Task<Void, Never>?
 
-    /// Called with the final transcript when the user stops speaking.
+    /// Called (on the main actor) with the final transcript when the user stops speaking.
     var onTranscript: ((String) -> Void)?
 
     func requestAuth() {
-        SFSpeechRecognizer.requestAuthorization { status in
-            Task { @MainActor in self.authorized = (status == .authorized) }
+        Task { self.authorized = (await Self.authStatus() == .authorized) }
+    }
+    nonisolated private static func authStatus() async -> SFSpeechRecognizerAuthorizationStatus {
+        await withCheckedContinuation { c in
+            SFSpeechRecognizer.requestAuthorization { c.resume(returning: $0) }   // closure captures only `c`
         }
     }
 
-    // MARK: TTS — Ember speaks
+    // MARK: TTS — Ember speaks (local)
     func speak(_ text: String, locale: String = "fr-FR") {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
@@ -34,10 +45,9 @@ final class SpeechController: ObservableObject {
         u.rate = AVSpeechUtteranceDefaultSpeechRate
         synth.speak(u)
     }
-
     func stopSpeaking() { if synth.isSpeaking { synth.stopSpeaking(at: .immediate) } }
 
-    // MARK: STT — listen
+    // MARK: STT — listen (local)
     func toggleListening(locale: String = "fr-FR") {
         if listening { stopListening() } else { startListening(locale: locale) }
     }
@@ -50,32 +60,50 @@ final class SpeechController: ObservableObject {
         request = req
         partial = ""
 
-        let node = engine.inputNode
-        let fmt = node.outputFormat(forBus: 0)
-        node.installTap(onBus: 0, bufferSize: 1024, format: fmt) { buf, _ in req.append(buf) }
-        engine.prepare()
-        do { try engine.start() } catch { cleanup(); return }
+        let (stream, cont) = AsyncStream.makeStream(of: STTUpdate.self)
+        do {
+            // tap + recognitionTask closures are created in a NONISOLATED context so AVFoundation's
+            // realtime audio thread / the recognizer queue don't trip the @MainActor isolation assert.
+            task = try Self.beginRecognition(rec: rec, engine: engine, req: req, cont: cont)
+        } catch {
+            cleanup(); return
+        }
         listening = true
 
-        task = rec.recognitionTask(with: req) { [weak self] result, error in
-            guard let self else { return }
-            Task { @MainActor in
-                if let result {
-                    self.partial = result.bestTranscription.formattedString
-                    if result.isFinal {
-                        let text = result.bestTranscription.formattedString
-                        self.stopListening()
-                        if !text.isEmpty { self.onTranscript?(text) }
-                    }
+        consumer = Task { @MainActor in
+            for await u in stream {
+                if let t = u.text { self.partial = t }
+                if u.isFinal {
+                    let t = u.text
+                    self.cleanup()
+                    if let t, !t.isEmpty { self.onTranscript?(t) }
+                } else if u.failed {
+                    self.cleanup()
                 }
-                if error != nil { self.stopListening() }
             }
+        }
+    }
+
+    nonisolated private static func beginRecognition(
+        rec: SFSpeechRecognizer, engine: AVAudioEngine,
+        req: SFSpeechAudioBufferRecognitionRequest, cont: AsyncStream<STTUpdate>.Continuation
+    ) throws -> SFSpeechRecognitionTask {
+        let node = engine.inputNode
+        node.installTap(onBus: 0, bufferSize: 1024, format: node.outputFormat(forBus: 0)) { buf, _ in
+            req.append(buf)
+        }
+        engine.prepare()
+        try engine.start()
+        return rec.recognitionTask(with: req) { result, error in
+            cont.yield(STTUpdate(text: result?.bestTranscription.formattedString,
+                                 isFinal: result?.isFinal ?? false,
+                                 failed: error != nil))
+            if (result?.isFinal ?? false) || error != nil { cont.finish() }
         }
     }
 
     func stopListening() {
         request?.endAudio()
-        // Give a final transcript a beat, then tear down.
         cleanup()
     }
 
@@ -83,6 +111,7 @@ final class SpeechController: ObservableObject {
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         task?.cancel(); task = nil
+        consumer?.cancel(); consumer = nil
         request = nil
         listening = false
     }
