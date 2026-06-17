@@ -102,11 +102,19 @@ def _chunk_text(text: str, max_chars: int = 220, max_chunks: int = 24) -> list:
 
 
 def _grounded(fact: str, source: str) -> bool:
-    """True if most of the fact's content words appear in the source — rejects model hallucinations."""
+    """True if the fact is supported by the source — rejects the small model's hallucinations.
+    Strong rule: any PROPER NOUN (capitalised word, not sentence-initial) in the fact MUST appear
+    in the source — this kills invented names/places (e.g. the prompt-example name leaking, or
+    'J'habite à Paris' from a Lyon message). Plus a content-word overlap floor."""
+    sl = source.lower()
+    words = fact.split()
+    for w in words[1:]:                       # skip the sentence-initial capital
+        if re.match(r"[A-ZÀ-Ÿ][\wÀ-ÿà-ÿ'’\-]{2,}$", w):
+            if w.lower().strip(".,;:!?»«\"'") not in sl:
+                return False                  # invented name/place → reject
     fw = [w for w in re.findall(r"[^\W\d_]+", fact.lower(), re.UNICODE) if len(w) > 3]
     if not fw:
         return False
-    sl = source.lower()
     hits = sum(1 for w in fw if w in sl)
     return hits / len(fw) >= 0.5
 
@@ -141,6 +149,8 @@ _CMD_STARTS = (
     "help", "open", "list", "summar", "show", "write", "draft", "search", "find", "prepare",
     "tell", "explain", "make", "give", "play", "send", "translate", "generate", "can you",
     "could you", "please", "bonjour", "salut", "hello", "merci", "thanks",
+    "rappelle", "rappelles", "remind", "quel est", "quelle est", "qui suis", "que sais",
+    "qu'est-ce", "what", "who", "where", "comment je", "où est", "ou est",
 )
 
 
@@ -151,8 +161,16 @@ def _looks_like_command(message: str) -> bool:
 
 def _is_real_fact(text: str) -> bool:
     """Drop extractions that aren't durable facts ABOUT THE USER: second-person lines (addressed
-    to the user / command echoes) and assistant boiler-plate."""
+    to the user / command echoes), assistant boiler-plate, and PROMPT-TEMPLATE artifacts (the
+    small model sometimes copies the format example literally instead of filling it in)."""
     t = text.strip().lower()
+    # template/placeholder leak — angle brackets or example wording the model echoed verbatim
+    if "<" in text or ">" in text:
+        return False
+    placeholders = ["nom écrit", "nom ecrit", "ville écrite", "ville ecrite", "le nom", "la ville",
+                    "<le nom", "<la ville", "exemple", "example", "prénom écrit", "actual"]
+    if any(p in t for p in placeholders):
+        return False
     if t.startswith(("tu ", "vous ", "tu,", "vous,", "tu’", "t'")):
         return False
     fluff = ["besoin d'aide", "disponible pour", "puis-je", "comment puis-je", "ravi de",
@@ -402,10 +420,12 @@ class Engine:
                "- Use ONLY words/entities present in the message. NEVER invent or add a name, place, "
                "pet, age, project, job or any detail that is not literally written. If unsure, omit it.\n"
                "- ATOMIC: exactly one fact per item; never join with 'et'/'and'/','.\n"
+               "- Each item is a short third-person clause reusing the message's own words.\n"
                "- No duplicates, no questions/requests/greetings, no transient info. At most 4 facts.\n"
-               "- If the message states no durable personal fact, reply exactly: []\n"
-               'Format example (for the sentence "je m\'appelle Théo et je vis à Nantes"): '
-               '["S\'appelle Théo","Vit à Nantes"]')
+               "- If the message states no durable personal fact (e.g. a question or a request), "
+               "reply with an empty array and nothing else.\n"
+               "Example — message \"je m'appelle Théo et je vis à Nantes\" gives "
+               "[\"S'appelle Théo\",\"Vit à Nantes\"]; message \"quelle heure est-il ?\" gives [].")
         msgs = [{"role": "system", "content": sys}, {"role": "user", "content": message}]
         with self._lock:
             raw = self.mlx.chat(msgs, max_tokens=100)
