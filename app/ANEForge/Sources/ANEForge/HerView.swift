@@ -130,6 +130,7 @@ private struct HerWaveform: View {
 
 private struct HerAgentPanel: View {
     @EnvironmentObject var state: AppState
+    @StateObject private var speech = SpeechController()
     @State private var task = ""
 
     var body: some View {
@@ -142,6 +143,15 @@ private struct HerAgentPanel: View {
         }
         .padding(24)
         .glassCard(corner: 22)
+        .onAppear {
+            speech.requestAuth()
+            speech.onTranscript = { t in state.runAgentTask(t) }   // voix → tâche (mains-libres)
+        }
+        .onChange(of: state.agentEvents) { _, events in
+            if let last = events.last, last.type == "done" || last.type == "message" {
+                speech.speak(last.text)                            // Ember répond à voix haute
+            }
+        }
     }
 
     private var header: some View {
@@ -162,7 +172,16 @@ private struct HerAgentPanel: View {
 
     private var taskInput: some View {
         HStack(spacing: 8) {
-            TextField("Confie une tâche à Ember…", text: $task)
+            // mic — mains-libres (local STT). Pulses red while listening.
+            Button(action: { speech.toggleListening() }) {
+                Image(systemName: speech.listening ? "mic.fill" : "mic")
+                    .font(.system(size: 17))
+                    .foregroundStyle(speech.listening ? Color(hexv: 0xff5a46) : Color(hexv: 0x9a8d84))
+            }
+            .buttonStyle(.plain)
+            .help(speech.listening ? "Arrêter l'écoute" : "Parler à Ember")
+
+            TextField(speech.listening ? (speech.partial.isEmpty ? "À l'écoute…" : speech.partial) : "Confie une tâche à Ember…", text: $task)
                 .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
                 .onSubmit(run)
             Button(action: run) {

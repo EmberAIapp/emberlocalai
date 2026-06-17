@@ -34,5 +34,9 @@
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Ember utilise le micro pour le Mode Her mains-libres — la reconnaissance vocale est locale (sur ton Mac).</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Ember transcrit ta voix localement pour le Mode Her. Rien n'est envoyé à un serveur.</string>
 </dict>
 </plist>
