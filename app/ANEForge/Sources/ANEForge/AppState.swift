@@ -613,8 +613,11 @@ final class AppState: ObservableObject {
         (try? await engine.getSettings(name: name)) ?? AISettings()
     }
 
-    func saveSettings(_ name: String, persona: String, maxTokens: Int) async {
-        do { try await engine.setSettings(name: name, persona: persona, maxTokens: maxTokens) }
+    func saveSettings(_ name: String, persona: String, maxTokens: Int, temperature: Double) async {
+        // The tone chip (personaSel) is sent as its own field → the daemon turns it into a real
+        // instruction in the persona prompt (no longer cosmetic), without polluting the free text.
+        do { try await engine.setSettings(name: name, persona: persona, maxTokens: maxTokens,
+                                          temperature: temperature, tone: personaSel) }
         catch { errorText = error.localizedDescription }
     }
 

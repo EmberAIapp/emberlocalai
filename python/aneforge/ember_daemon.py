@@ -42,17 +42,28 @@ def _settings_path(name: str):
 
 
 def _load_settings(name: str) -> dict:
+    base = {"persona": "", "max_tokens": 220, "temperature": 0.7, "tone": "Calme"}
     p = _settings_path(name)
     if p.exists():
         try:
-            return json.loads(p.read_text())
+            base.update(json.loads(p.read_text()))   # merge → all keys always present
         except Exception:
             pass
-    return {"persona": "", "max_tokens": 220}
+    return base
 
 
-def _save_settings(name: str, persona: str, max_tokens: int):
-    _settings_path(name).write_text(json.dumps({"persona": persona, "max_tokens": max_tokens}))
+def _save_settings(name: str, persona: str, max_tokens: int, temperature: float = 0.7, tone: str = "Calme"):
+    _settings_path(name).write_text(json.dumps(
+        {"persona": persona, "max_tokens": max_tokens, "temperature": temperature, "tone": tone}))
+
+
+# Tone chip (Réglages) → a real instruction the model follows.
+_TONE_INSTR = {
+    "Vif": "Adopte un ton vif, direct et énergique.",
+    "Professionnel": "Adopte un ton professionnel, précis et structuré.",
+    "Chaleureux": "Adopte un ton chaleureux, bienveillant et proche.",
+    "Calme": "Adopte un ton calme, posé et rassurant.",
+}
 
 
 def _parse_fact_array(raw: str) -> list:
@@ -345,7 +356,9 @@ class Engine:
             "Your name is Ember. You are NOT Claude, GPT, Qwen, Llama, Gemini, or any other model or "
             "company's assistant — never say or imply otherwise. If asked who or what you are, you are "
             "simply Ember, the user's local AI. ALWAYS reply in the same language as the user's message.")
-        lines = [s.get("persona") or "You are warm, concise and genuinely helpful.", identity]
+        tone = _TONE_INSTR.get(s.get("tone") or "Calme", "")
+        base_persona = s.get("persona") or "You are warm, concise and genuinely helpful."
+        lines = [" ".join(x for x in (tone, base_persona) if x), identity]
         facts = store_for_model(name).relevant(prompt)
         if facts:
             lines.append(
@@ -373,9 +386,11 @@ class Engine:
         messages += hist[-8:]
         messages.append({"role": "user", "content": prompt})
 
-        max_tokens = int(_load_settings(name).get("max_tokens", 220) or 220)
+        cfg = _load_settings(name)
+        max_tokens = int(cfg.get("max_tokens", 220) or 220)
+        temperature = float(cfg.get("temperature", 0.7))
         with self._lock:  # MLX model is not thread-safe; serialize generation
-            answer = self.mlx.chat(messages, max_tokens=max_tokens)
+            answer = self.mlx.chat(messages, max_tokens=max_tokens, temperature=temperature)
         hist.append({"role": "user", "content": prompt})
         hist.append({"role": "assistant", "content": answer})
 
@@ -402,10 +417,12 @@ class Engine:
         messages = [{"role": "system", "content": self._persona(name, prompt)}]
         messages += hist[-8:]
         messages.append({"role": "user", "content": prompt})
-        max_tokens = int(_load_settings(name).get("max_tokens", 220) or 220)
+        cfg = _load_settings(name)
+        max_tokens = int(cfg.get("max_tokens", 220) or 220)
+        temperature = float(cfg.get("temperature", 0.7))
         full = ""
         with self._lock:  # serialize generation (MLX not thread-safe)
-            for delta in self.mlx.stream(messages, max_tokens=max_tokens):
+            for delta in self.mlx.stream(messages, max_tokens=max_tokens, temperature=temperature):
                 full += delta
                 yield delta
         hist.append({"role": "user", "content": prompt})
@@ -719,7 +736,8 @@ def make_handler(engine: Engine):
                 if u.path == "/reset":
                     engine.reset(b["name"]); return self._send(200, {"ok": True})
                 if u.path == "/settings":
-                    _save_settings(b["name"], b.get("persona", ""), int(b.get("max_tokens", 220)))
+                    _save_settings(b["name"], b.get("persona", ""), int(b.get("max_tokens", 220)),
+                                   float(b.get("temperature", 0.7)), b.get("tone", "Calme"))
                     return self._send(200, {"ok": True})
                 if u.path == "/set_model":
                     # change the LOCAL model directly (Réglages) — reloads it (downloads if needed)

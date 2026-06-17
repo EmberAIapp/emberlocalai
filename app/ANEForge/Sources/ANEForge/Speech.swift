@@ -144,7 +144,7 @@ final class SpeechController: ObservableObject {
         guard let rec = recognizer else { return }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        req.requiresOnDeviceRecognition = true   // §7 : JAMAIS de serveur Apple — on tient la promesse Info.plist
         fdReq = req; box.set(req)
         partial = ""; fdHeard = false
         mode = m; listening = (m == .listening)
@@ -305,7 +305,7 @@ final class SpeechController: ObservableObject {
         let eng = AVAudioEngine()
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
-        if rec.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        req.requiresOnDeviceRecognition = true   // §7 : JAMAIS de serveur Apple — on tient la promesse Info.plist
         tbReq = req; partial = ""; tbHeard = false
         let (stream, cont) = AsyncStream.makeStream(of: STTUpdate.self)
         do { tbTask = try Self.beginTB(rec: rec, engine: eng, req: req, cont: cont) }

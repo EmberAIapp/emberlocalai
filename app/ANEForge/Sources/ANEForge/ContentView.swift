@@ -85,21 +85,22 @@ struct TopBar: View {
 
     private var switcher: some View {
         let name = state.selected?.name ?? "Ember"
-        let version = state.selected.map { "v\($0.version)" } ?? "v1"
+        // Honest badge: how many facts Ember knows (real), not a fake training "version".
+        let factCount = state.facts.count
         return Button {
             state.switcherOpen.toggle()
         } label: {
             HStack(spacing: 10) {
-                // switcherBrand orb 18
+                // switcherBrand orb 18 — LIVE (reflects the real state, §3 "partout")
                 HStack(spacing: 9) {
-                    EmberOrb(mode: .repos, size: 18).frame(width: 18, height: 18)
+                    EmberOrb(mode: state.orbMode, size: 18).frame(width: 18, height: 18)
                     Text(name)
                         .font(.system(size: 13, weight: .semibold))
                         .tracking(0.2)
                         .foregroundStyle(Color(hexv: 0xf0ddcf))
                 }
-                // version pill: 11px #9a8073, bg rgba(255,140,70,0.14), padding 2px 8px, radius 10
-                Text(version)
+                // fact-count pill: 11px #9a8073, bg rgba(255,140,70,0.14), padding 2px 8px, radius 10
+                Text(state.selected == nil ? "·" : "\(factCount) fait\(factCount > 1 ? "s" : "")")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0x9a8073))
                     .padding(.horizontal, 8).padding(.vertical, 2)
@@ -161,8 +162,8 @@ struct TopBar: View {
                             Text(m.name)
                                 .font(.system(size: 13.5, weight: .semibold))
                                 .foregroundStyle(Color(hexv: 0xf0ddcf))
-                            // meta 11px #9a8073
-                            Text("v\(m.version) · \(m.steps) pas")
+                            // meta 11px #9a8073 — honnête : pas de fausse « version/pas d'entraînement »
+                            Text("IA locale")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color(hexv: 0x9a8073))
                         }

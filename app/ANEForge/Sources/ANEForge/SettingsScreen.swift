@@ -89,6 +89,8 @@ struct SettingsScreen: View {
             let s = await state.loadSettings(name)
             personaText = s.persona
             maxTokens = Double(max(16, s.maxTokens))
+            temperature = s.temperature
+            if !s.tone.isEmpty { state.personaSel = s.tone }
         }
     }
 
@@ -265,7 +267,7 @@ struct SettingsScreen: View {
             Spacer(minLength: 0)
             EmberCTA(title: "Enregistrer", size: 13) {
                 if let name = state.selected?.name {
-                    Task { await state.saveSettings(name, persona: personaText, maxTokens: Int(maxTokens)) }
+                    Task { await state.saveSettings(name, persona: personaText, maxTokens: Int(maxTokens), temperature: temperature) }
                 }
             }
         }

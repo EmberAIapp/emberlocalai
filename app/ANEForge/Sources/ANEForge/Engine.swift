@@ -29,9 +29,11 @@ struct Fact: Identifiable, Codable, Hashable {
 }
 
 struct AISettings: Codable {
+    var temperature: Double = 0.7
     var persona: String = ""
     var maxTokens: Int = 220
-    enum CodingKeys: String, CodingKey { case persona; case maxTokens = "max_tokens" }
+    var tone: String = "Calme"
+    enum CodingKeys: String, CodingKey { case persona; case maxTokens = "max_tokens"; case temperature; case tone }
 }
 
 struct EngineConfig {
@@ -277,8 +279,9 @@ actor Engine {
         try JSONDecoder().decode(AISettings.self, from: try await get("/settings?name=\(name)"))
     }
 
-    func setSettings(name: String, persona: String, maxTokens: Int) async throws {
-        _ = try await post("/settings", ["name": name, "persona": persona, "max_tokens": maxTokens])
+    func setSettings(name: String, persona: String, maxTokens: Int, temperature: Double, tone: String) async throws {
+        _ = try await post("/settings", ["name": name, "persona": persona,
+                                         "max_tokens": maxTokens, "temperature": temperature, "tone": tone])
     }
 
     /// Train on a data file — still a streaming CLI subprocess (Rust engine).
