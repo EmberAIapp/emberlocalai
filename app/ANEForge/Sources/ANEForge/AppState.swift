@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import AppKit
 
 struct ChatMessage: Identifiable, Hashable {
     enum Role { case user, assistant }
@@ -624,6 +625,43 @@ final class AppState: ObservableObject {
     func loadSettings(_ name: String) async -> AISettings {
         (try? await engine.getSettings(name: name)) ?? AISettings()
     }
+
+    // MARK: - Génération locale d'éléments (la plus-value : Her FABRIQUE des choses, en local)
+
+    struct GeneratedDoc: Identifiable, Equatable { let id = UUID(); let title: String; let path: URL }
+    @Published var generating = false
+    @Published var lastGenerated: GeneratedDoc?
+
+    /// Generate a real document LOCALLY from a brief, save it (openable), and surface it.
+    func generateDocument(_ brief: String) async {
+        let b = brief.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !b.isEmpty, let name = selected?.name, !generating else { return }
+        generating = true; defer { generating = false }
+        do {
+            let r = try await engine.generate(name: name, brief: b)
+            let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Ember", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let slug = Self.slug(r.title)
+            let url = dir.appendingPathComponent("\(slug).md")
+            try r.content.write(to: url, atomically: true, encoding: .utf8)
+            lastGenerated = GeneratedDoc(title: r.title, path: url)
+        } catch {
+            errorText = "Génération impossible : \(error.localizedDescription)"
+        }
+    }
+
+    nonisolated static func slug(_ s: String) -> String {
+        let base = s.lowercased().folding(options: .diacriticInsensitive, locale: .current)
+        let cleaned = base.map { $0.isLetter || $0.isNumber ? $0 : "-" }
+        var out = String(cleaned)
+        while out.contains("--") { out = out.replacingOccurrences(of: "--", with: "-") }
+        out = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return out.isEmpty ? "document" : String(out.prefix(48))
+    }
+
+    func openGenerated() { if let u = lastGenerated?.path { NSWorkspace.shared.open(u) } }
+    func revealGenerated() { if let u = lastGenerated?.path { NSWorkspace.shared.activateFileViewerSelecting([u]) } }
 
     func saveSettings(_ name: String, persona: String, maxTokens: Int, temperature: Double) async {
         // The tone chip (personaSel) is sent as its own field → the daemon turns it into a real

@@ -406,6 +406,30 @@ class Engine:
         threading.Thread(target=self._learn_async, args=(name, prompt), daemon=True).start()
         return {"answer": answer, "learned": [], "source": "mlx"}
 
+    def generate(self, name: str, brief: str) -> dict:
+        """§1/§5.4 plus-value — GÉNÉRER un vrai élément (document) EN LOCAL, ancré dans la persona
+        + la mémoire de l'utilisateur. Renvoie le contenu Markdown complet + un titre. 100% local."""
+        cfg = _load_settings(name)
+        sysmsg = (self._persona(name, brief) +
+                  "\n\nL'utilisateur te demande de GÉNÉRER un document/élément. Produis le contenu "
+                  "FINAL, COMPLET et bien structuré en Markdown (un titre #, des sections, des listes "
+                  "si utile). N'écris QUE le contenu — aucun préambule du type « Voici… ». "
+                  "Réponds dans la langue de l'utilisateur.")
+        messages = [{"role": "system", "content": sysmsg}, {"role": "user", "content": brief}]
+        with self._lock:
+            content = self.mlx.chat(messages, max_tokens=900,
+                                    temperature=float(cfg.get("temperature", 0.7)),
+                                    repetition_penalty=1.18)
+        # Title = first Markdown heading, else first words of the brief.
+        title = ""
+        for line in content.splitlines():
+            t = line.strip().lstrip("#").strip()
+            if t:
+                title = t[:60]; break
+        if not title:
+            title = " ".join(brief.split()[:7])[:60] or "Document"
+        return {"ok": True, "content": content.strip(), "title": title}
+
     def chat_stream(self, name: str, prompt: str):
         """Yield the reply token-by-token (§5.4). Same memory/recall/learning as chat()."""
         self._touch()
@@ -605,6 +629,16 @@ def make_handler(engine: Engine):
                     if not (MODELS_DIR / b["name"]).exists():
                         return self._send(404, {"error": "IA introuvable"})
                     return self._send(200, engine.chat(b["name"], b["prompt"]))
+                if u.path == "/generate":
+                    # Plus-value : générer un VRAI élément (document) en local, ancré mémoire/persona.
+                    if not engine.ready:
+                        return self._send(503, {"error": "model loading"})
+                    name = b["name"]; brief = (b.get("prompt") or b.get("brief") or "").strip()
+                    if not (MODELS_DIR / name).exists():
+                        return self._send(404, {"error": "IA introuvable"})
+                    if not brief:
+                        return self._send(400, {"error": "décris ce que tu veux générer"})
+                    return self._send(200, engine.generate(name, brief))
                 if u.path == "/route":
                     # Mode Her: decide conversation (local chat) vs work (agent). §4.E
                     if not engine.ready:

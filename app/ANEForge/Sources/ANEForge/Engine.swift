@@ -107,6 +107,14 @@ actor Engine {
     }
 
     /// Learn from a file's text by extracting facts into memory. Returns the number learned.
+    /// Generate a full document/element LOCALLY (persona + memory grounded). Returns (content, title).
+    func generate(name: String, brief: String) async throws -> (content: String, title: String) {
+        struct R: Decodable { let content: String; let title: String }
+        let d = try await post("/generate", ["name": name, "prompt": brief])
+        let r = try JSONDecoder().decode(R.self, from: d)
+        return (r.content, r.title)
+    }
+
     func ingest(name: String, text: String, source: String = "file") async throws -> Int {
         struct R: Decodable { let learned: Int }
         let data = try await post("/ingest", ["name": name, "text": text, "source": source])

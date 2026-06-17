@@ -102,6 +102,11 @@ struct HomeView: View {
 
     private var inputArea: some View {
         VStack(spacing: 0) {
+            // génération locale : progression ou résultat (ouvrable)
+            if state.generating || state.lastGenerated != nil {
+                GenerationBanner().padding(.bottom, 10)
+            }
+
             // suggestions — gap:8px, margin-bottom:11px, centered, wrap
             FlexWrap(spacing: 8, lineSpacing: 8) {
                 ForEach(DesignData.homeSuggestions, id: \.self) { s in
@@ -130,12 +135,24 @@ struct HomeView: View {
                     .foregroundStyle(Color(hexv: 0xf3e9e2))
                     .onSubmit { send(draft) }
 
-                // talkOrb 42 in a 46x46 hit area — "Générer"
+                // 📄 générer un VRAI document (fichier local), à partir du brief tapé
+                Button { generateDoc() } label: {
+                    Image(systemName: state.generating ? "doc.badge.gearshape" : "doc.badge.plus")
+                        .font(.system(size: 17))
+                        .foregroundStyle(Color(hexv: 0xc79a82))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Générer un document (fichier local)")
+                .disabled(state.generating || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                // talkOrb 42 in a 46x46 hit area — "Générer" (réponse en chat)
                 Button { send(draft) } label: {
                     EmberOrb(mode: heroMode, size: 42).frame(width: 46, height: 46)
                 }
                 .buttonStyle(.plain)
-                .help("Générer")
+                .help("Envoyer")
                 .disabled(state.isBusy || draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.leading, 18).padding(.trailing, 9).padding(.vertical, 9)
@@ -164,6 +181,49 @@ struct HomeView: View {
         guard !t.isEmpty, !state.isBusy else { return }
         draft = ""
         Task { await state.send(t) }
+    }
+
+    private func generateDoc() {
+        let t = draft.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty, !state.generating else { return }
+        draft = ""
+        Task { await state.generateDocument(t) }
+    }
+}
+
+// MARK: - Generation banner (progress / generated document, openable)
+private struct GenerationBanner: View {
+    @EnvironmentObject var state: AppState
+    var body: some View {
+        HStack(spacing: 12) {
+            if state.generating {
+                EmberOrb(mode: .reflexion, size: 22).frame(width: 22, height: 22)
+                Text("Génération du document… (en local)")
+                    .font(.system(size: 13)).foregroundStyle(Color(hexv: 0xe8c4a8))
+                Spacer(minLength: 0)
+            } else if let doc = state.lastGenerated {
+                Image(systemName: "doc.text.fill").font(.system(size: 14)).foregroundStyle(Color(hexv: 0x9fd9ad))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(doc.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hexv: 0xecd9c9)).lineLimit(1)
+                    Text("Document généré · 100% local").font(.system(size: 11)).foregroundStyle(Color(hexv: 0x8a7d75))
+                }
+                Spacer(minLength: 0)
+                Button { state.openGenerated() } label: { pill("Ouvrir") }.buttonStyle(.plain)
+                Button { state.revealGenerated() } label: { pill("Révéler") }.buttonStyle(.plain)
+                Button { state.lastGenerated = nil } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hexv: 0x8a7d75)).frame(width: 22, height: 22)
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 10).padding(.horizontal, 14)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hexv: 0x5fd07a).opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color(hexv: 0x5fd07a).opacity(0.20), lineWidth: 1))
+    }
+    private func pill(_ s: String) -> some View {
+        Text(s).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hexv: 0x9fd9ad))
+            .padding(.vertical, 5).padding(.horizontal, 12)
+            .background(Capsule().fill(Color(hexv: 0x5fd07a).opacity(0.12)))
     }
 }
 

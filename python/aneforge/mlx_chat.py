@@ -36,12 +36,27 @@ class MLXChat:
         except Exception:
             return None
 
-    def chat(self, messages: list[dict], max_tokens: int = 220, temperature: float | None = None) -> str:
+    @staticmethod
+    def _logits_processors(repetition_penalty: float | None):
+        """Repetition penalty (anti-loop) — important for long generations on a small model."""
+        if not repetition_penalty:
+            return None
+        try:
+            from mlx_lm.sample_utils import make_logits_processors
+            return make_logits_processors(repetition_penalty=float(repetition_penalty))
+        except Exception:
+            return None
+
+    def chat(self, messages: list[dict], max_tokens: int = 220, temperature: float | None = None,
+             repetition_penalty: float | None = None) -> str:
         """messages: [{role: system|user|assistant, content: ...}] -> answer text."""
         from mlx_lm import generate
         prompt = self.tok.apply_chat_template(messages, add_generation_prompt=True)
         s = self._sampler(temperature)
         kw = {"sampler": s} if s is not None else {}
+        lp = self._logits_processors(repetition_penalty)
+        if lp is not None:
+            kw["logits_processors"] = lp
         out = generate(self.model, self.tok, prompt=prompt, max_tokens=max_tokens, verbose=False, **kw)
         return out.strip()
 
