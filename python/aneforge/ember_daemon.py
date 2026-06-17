@@ -53,17 +53,27 @@ def _save_settings(name: str, persona: str, max_tokens: int):
 
 
 def _parse_fact_array(raw: str) -> list:
-    """Pull a JSON array of short fact strings out of the model's reply (robust to extra text)."""
+    """Pull a JSON array of short fact strings out of the model's reply — robust to a missing
+    closing bracket or trailing text (a small model often emits an unclosed `[ "…"`)."""
     if not raw:
         return []
     s = raw.strip()
-    a, b = s.find("["), s.rfind("]")
-    if a < 0 or b <= a:
+    a = s.find("[")
+    if a < 0:
         return []
+    b = s.rfind("]")
+    frag = s[a:b + 1] if b > a else s[a:]
+    arr = None
     try:
-        arr = json.loads(s[a:b + 1])
+        arr = json.loads(frag)
     except Exception:
-        return []
+        repaired = frag.rstrip().rstrip(",")
+        if not repaired.endswith("]"):
+            repaired += "]"
+        try:
+            arr = json.loads(repaired)
+        except Exception:
+            arr = re.findall(r'"((?:[^"\\]|\\.)*)"', frag)   # last resort: quoted strings
     out = []
     for x in (arr if isinstance(arr, list) else []):
         t = " ".join(str(x).split())
@@ -316,6 +326,14 @@ def make_handler(engine: Engine):
                         return self._send(409, {"error": "ce nom est déjà pris"})
                     import shutil
                     shutil.move(str(src), str(dst))   # moves config, settings.json, memory.db, versions
+                    # the listing reads name from config.json — update it so the rename shows up
+                    cfg = dst / "config.json"
+                    try:
+                        data = json.loads(cfg.read_text())
+                        data["name"] = new
+                        cfg.write_text(json.dumps(data))
+                    except Exception:
+                        pass
                     engine.reset(old)
                     return self._send(200, {"ok": True})
                 if u.path == "/chat":
