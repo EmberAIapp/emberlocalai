@@ -137,7 +137,7 @@ struct OnboardingView: View {
         if state.onboardStep == 1 {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             if state.models.isEmpty && !trimmed.isEmpty {
-                Task { await state.create(name: trimmed, base: "smollm2-360m-instruct") }
+                Task { await state.create(name: trimmed, base: "qwen2.5-1.5b-instruct") }
             }
         }
         state.onboardNext()

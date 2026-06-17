@@ -300,11 +300,12 @@ struct CreateSheet: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) var dismiss
     @State private var name = ""
-    @State private var base = "smollm2-360m-instruct"
+    @State private var base = "qwen2.5-1.5b-instruct"
 
+    // Honest (§2.4 — "la preuve, pas la promesse"): every IA runs on ONE local engine,
+    // loaded once. We don't offer phantom model choices the engine doesn't actually run.
     private let bases = [
-        ("smollm2-360m-instruct", "Équilibré", "Recommandé · fluide & multilingue"),
-        ("smollm2-135m-instruct", "Léger", "Rapide, pour petites configurations"),
+        ("qwen2.5-1.5b-instruct", "Qwen2.5-1.5B", "100% local · multilingue · optimisé Apple Silicon"),
     ]
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
@@ -385,8 +386,8 @@ struct CreateSheet: View {
                 if sel { Circle().fill(Color(hexv: 0xff8a48)).frame(width: 8, height: 8) }
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(b.1).font(.system(size: 14, weight: .semibold)).foregroundStyle(.emberInk)
-                Text(b.2).font(.system(size: 12)).foregroundStyle(.emberMuted)
+                Text(b.1).font(.system(size: 14, weight: .semibold)).foregroundStyle(.emberInk)   // model id — language-neutral
+                Text(LocalizedStringKey(b.2)).font(.system(size: 12)).foregroundStyle(.emberMuted)
             }
             Spacer(minLength: 0)
         }

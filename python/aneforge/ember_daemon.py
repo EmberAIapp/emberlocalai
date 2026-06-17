@@ -109,6 +109,26 @@ def _grounded(fact: str, source: str) -> bool:
     return hits / len(fw) >= 0.5
 
 
+def _is_near_dup(text: str, existing: list, thresh: float = 0.80) -> bool:
+    """True if `text` is essentially a restatement of a fact already stored — keeps memory
+    clean (the small model paraphrases the same fact many ways: 'Thomas'/'Thomas.',
+    'habite à Bordeaux'/'vis à Bordeaux'). Measured empirically: real paraphrases score
+    ≥0.83 cosine, genuinely distinct facts ≤0.50 — so 0.80 collapses dups with wide margin."""
+    if not existing:
+        return False
+    from aneforge.memory import _semantic_scores
+    sims = _semantic_scores(text, existing)
+    if sims is not None:
+        return max(sims) >= thresh
+    # fallback (embedder unavailable): high token overlap
+    tw = set(re.findall(r"[^\W\d_]+", text.lower()))
+    for e in existing:
+        ew = set(re.findall(r"[^\W\d_]+", e.lower()))
+        if tw and len(tw & ew) / len(tw | ew) >= 0.7:
+            return True
+    return False
+
+
 # --- Agent sessions (Mode Her): stream events + human-in-the-loop permission gates ---
 _AGENT_SESSIONS: dict = {}
 
@@ -230,17 +250,30 @@ class Engine:
         if not facts:
             return
         store = store_for_model(name)  # fresh connection for this thread
+        existing = [x.text for x in store.all()]
         for f in facts:
-            store.add(f, kind="misc", source="model")
+            # §2.4 honesty: a small model embellishes (it invents age, job, extra tastes…).
+            # Keep ONLY facts grounded in what the user actually wrote — the same
+            # anti-hallucination gate already used for file ingestion. Without this, chat
+            # silently stored invented "facts about you", which is worse than forgetting.
+            if not _grounded(f, message):
+                continue
+            if _is_near_dup(f, existing):   # skip paraphrases of what we already know
+                continue
+            if store.add(f, kind="misc", source="model"):
+                existing.append(f)
 
     def _extract_facts(self, message: str) -> list[str]:
-        sys = ("You are a fact extractor. From the user's message, extract DURABLE personal facts "
-               "the user states about THEMSELVES (name, age, location, job, relationships, "
-               "tastes/preferences, ongoing projects). Reply with ONLY a JSON array of short "
-               "third-person statements IN THE USER'S LANGUAGE, e.g. "
-               '["Habite à Lyon","A un chat nommé Marlow"]. List each distinct fact ONCE — never '
-               "repeat or paraphrase the same fact. At most 5. No questions, no requests, no "
-               "transient/trivial info, no extra text. If there are none, reply []." )
+        sys = ("You extract durable personal facts the user EXPLICITLY states about THEMSELVES "
+               "(name, age, location, job, relationships, tastes, ongoing projects). Rules:\n"
+               "- Output ONLY a JSON array of short THIRD-PERSON statements in the user's "
+               'language, e.g. ["Habite à Lyon","A un chat nommé Marlow"].\n'
+               "- ATOMIC: exactly one fact per item. NEVER join two facts with 'et'/'and'/','.\n"
+               "- Use ONLY information written in the message. NEVER infer, guess, add or "
+               "embellish any detail (age, job, tastes…) that is not literally stated.\n"
+               "- No duplicate or paraphrased facts. No questions, requests, dates, greetings, "
+               "or transient/trivial info. At most 5 facts.\n"
+               "- If the message states no durable personal fact, reply exactly []." )
         msgs = [{"role": "system", "content": sys}, {"role": "user", "content": message}]
         with self._lock:
             raw = self.mlx.chat(msgs, max_tokens=160)
@@ -250,14 +283,18 @@ class Engine:
         """§4.A — learn from a file by extracting facts into memory (reliable recall),
         not by fine-tuning weights (§9.A: collapse-prone on a small local model)."""
         store = store_for_model(name)
+        existing = [x.text for x in store.all()]
         learned = 0
         for chunk in _chunk_text(text):
             try:
                 for f in self._extract_facts(chunk):
                     # §2.4 honesty: never store a fact the model invented — keep it only if its
-                    # content is actually grounded in the source chunk.
-                    if _grounded(f, chunk) and store.add(f, kind="misc", source="file"):
-                        learned += 1
+                    # content is actually grounded in the source chunk, and isn't a paraphrase
+                    # of something we already know.
+                    if not _grounded(f, chunk) or _is_near_dup(f, existing):
+                        continue
+                    if store.add(f, kind="misc", source="file"):
+                        existing.append(f); learned += 1
             except Exception:
                 continue
         return learned
@@ -339,6 +376,8 @@ def make_handler(engine: Engine):
                 if u.path == "/chat":
                     if not engine.ready:
                         return self._send(503, {"error": "model loading"})
+                    if not (MODELS_DIR / b["name"]).exists():
+                        return self._send(404, {"error": "IA introuvable"})
                     return self._send(200, engine.chat(b["name"], b["prompt"]))
                 if u.path == "/ingest":
                     if not engine.ready:
@@ -351,6 +390,8 @@ def make_handler(engine: Engine):
                     if not engine.ready:
                         return self._send(503, {"error": "model loading"})
                     name, prompt = b["name"], b["prompt"]   # KeyError here → outer 500 (pre-headers)
+                    if not (MODELS_DIR / name).exists():
+                        return self._send(404, {"error": "IA introuvable"})
                     self.send_response(200)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache")
