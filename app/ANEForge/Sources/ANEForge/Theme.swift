@@ -309,7 +309,7 @@ struct RailButton: View {
 // MARK: - Orb modes (1:1 with the design's MODES)
 
 enum OrbMode: String, CaseIterable {
-    case repos, ecoute, reflexion, parle, apprend
+    case repos, ecoute, reflexion, parle, apprend, erreur
 
     var label: LocalizedStringKey {
         switch self {
@@ -318,6 +318,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return "Réflexion"
         case .parle: return "Réponse"
         case .apprend: return "Apprentissage"
+        case .erreur: return "Erreur"
         }
     }
 
@@ -328,6 +329,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return "Je réfléchis."
         case .parle: return "Je te réponds…"
         case .apprend: return "J’apprends de toi."
+        case .erreur: return "Un souci est survenu."
         }
     }
 
@@ -351,6 +353,9 @@ enum OrbMode: String, CaseIterable {
         case .apprend:
             return ramp([0xFFF3DF, 0xFFE3BE, 0xFFD39E, 0xFFC37D, 0xFFB568, 0xFFA556, 0xFF9846, 0xFF8B37, 0xFB7A2B, 0xF36824, 0xEB561C, 0xE44616, 0xD13711, 0xA92B0F, 0x86200C, 0x5E140A],
                         [0, 0.06, 0.12, 0.18, 0.24, 0.31, 0.37, 0.43, 0.5, 0.57, 0.64, 0.7, 0.77, 0.85, 0.92, 1])
+        case .erreur:   // pulsation d'alerte rouge (§3), puis retour au calme
+            return ramp([0xFFD2C2, 0xFFB0A0, 0xFF8E7E, 0xFF6C5C, 0xFB4E44, 0xF23C38, 0xE63232, 0xD82A2A, 0xC72222, 0xB41C1C, 0xA01717, 0x8A1313, 0x720F0F, 0x560B0B, 0x3A0808, 0x240505],
+                        [0, 0.06, 0.12, 0.18, 0.24, 0.31, 0.37, 0.43, 0.5, 0.57, 0.64, 0.7, 0.77, 0.85, 0.92, 1])
         }
     }
 
@@ -370,6 +375,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return Color(hexv: 0xff5028)
         case .parle:     return Color(hexv: 0xff8c46)
         case .apprend:   return Color(hexv: 0xffaa5a)
+        case .erreur:    return Color(hexv: 0xff4038)
         }
     }
 
@@ -380,6 +386,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return Color(hexv: 0xff6a3a)
         case .parle:     return Color(hexv: 0xffa050)
         case .apprend:   return Color(hexv: 0xffc06e)
+        case .erreur:    return Color(hexv: 0xff5a52)
         }
     }
 
@@ -390,6 +397,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return 1.0
         case .parle: return 0.78
         case .apprend: return 0.90
+        case .erreur: return 1.0
         }
     }
 
@@ -401,6 +409,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return 1.05
         case .parle: return 1.10
         case .apprend: return 1.07
+        case .erreur: return 1.13
         }
     }
     var coreDuration: Double {
@@ -410,6 +419,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return 0.5
         case .parle: return 1.3
         case .apprend: return 1.0
+        case .erreur: return 0.4   // pulsation d'alerte rapide
         }
     }
     var haloDuration: Double {
@@ -419,6 +429,7 @@ enum OrbMode: String, CaseIterable {
         case .reflexion: return 0.65
         case .parle: return 1.3
         case .apprend: return 1.0
+        case .erreur: return 0.4
         }
     }
     /// Whether the core also flickers brighter (reflexion / apprend).

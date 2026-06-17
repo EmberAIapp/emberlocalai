@@ -49,8 +49,14 @@ final class AppState: ObservableObject {
     @Published var trainingLog: [String] = []
     @Published var lastLearned: [Fact] = []         // facts learned by the most recent ingestion
     @Published var connectedFolders: [String] = []  // local folder connectors (persisted, per-IA)
-    @Published var errorText: String?
+    @Published var errorText: String? { didSet { if errorText != nil { flashOrbError() } } }
+    @Published var orbError = false        // brief alert pulse on the orb (§3 « Erreur »)
     @Published var booting = true          // daemon/model still warming up
+
+    private func flashOrbError() {
+        orbError = true
+        Task { @MainActor in try? await Task.sleep(nanoseconds: 1_400_000_000); orbError = false }
+    }
 
     // Navigation / overlays
     @Published var view: MainView = .home
@@ -162,6 +168,7 @@ final class AppState: ObservableObject {
 
     /// The orb's living state, derived from what Ember is actually doing.
     var orbMode: OrbMode {
+        if orbError { return .erreur }       // brève pulsation d'alerte (§3), puis retour au calme
         if isLearning { return .apprend }
         if herListening { return .ecoute }   // Mode Her mic open — §3 "elle écoute"
         if agentBusy { return .reflexion }   // Mode Her agent working — §3 "ça calcule"
