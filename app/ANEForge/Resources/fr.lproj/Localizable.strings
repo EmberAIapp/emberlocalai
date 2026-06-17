@@ -87,3 +87,45 @@
 "« %@ » et toute sa mémoire seront définitivement supprimées de ce Mac." = "« %@ » et toute sa mémoire seront définitivement supprimées de ce Mac.";
 "Faits · %lld" = "Faits · %lld";
 "v%lld · %lld pas" = "v%lld · %lld pas";
+
+/* settings chrome + suggestions + status (data layer) */
+"Calme" = "Calme";
+"Vif" = "Vif";
+"Professionnel" = "Professionnel";
+"Chaleureux" = "Chaleureux";
+"Léger" = "Léger";
+"Équilibré" = "Équilibré";
+"Puissant" = "Puissant";
+"SmolLM2 — Macs 8 Go, ultra rapide." = "SmolLM2 — Macs 8 Go, ultra rapide.";
+"Qwen2.5-1.5B — fluide & multilingue. Recommandé." = "Qwen2.5-1.5B — fluide & multilingue. Recommandé.";
+"Qwen2.5-3B — réponses plus riches." = "Qwen2.5-3B — réponses plus riches.";
+"8 Go" = "8 Go";
+"16 Go" = "16 Go";
+"24 Go+" = "24 Go+";
+"rapide" = "rapide";
+"Fichiers" = "Fichiers";
+"Apps" = "Apps";
+"Recherche" = "Recherche";
+"Calendrier" = "Calendrier";
+"Automatisations" = "Automatisations";
+"Lire et organiser tes fichiers" = "Lire et organiser tes fichiers";
+"Ouvrir et piloter des apps" = "Ouvrir et piloter des apps";
+"Recherche web (désactivé = 100% local)" = "Recherche web (désactivé = 100% local)";
+"Lire et créer des événements" = "Lire et créer des événements";
+"Enchaîner plusieurs actions" = "Enchaîner plusieurs actions";
+"Carte des boissons du café" = "Carte des boissons du café";
+"Palette couleur pour l'identité" = "Palette couleur pour l'identité";
+"Budget d'ouverture en graphique" = "Budget d'ouverture en graphique";
+"Rétroplanning d'ouverture" = "Rétroplanning d'ouverture";
+"Appris" = "Appris";
+"En cours" = "En cours";
+"En attente" = "En attente";
+"Longueur des réponses" = "Longueur des réponses";
+"Créativité (température)" = "Créativité (température)";
+"Courte" = "Courte";
+"Équilibrée" = "Équilibrée";
+"Longue" = "Longue";
+
+/* home empty-state */
+"Choisis une IA en haut, ou crées-en une." = "Choisis une IA en haut, ou crées-en une.";
+"Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer." = "Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer.";

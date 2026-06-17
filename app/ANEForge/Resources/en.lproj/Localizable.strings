@@ -87,3 +87,45 @@
 "« %@ » et toute sa mémoire seront définitivement supprimées de ce Mac." = "\"%@\" and all its memory will be permanently deleted from this Mac.";
 "Faits · %lld" = "Facts · %lld";
 "v%lld · %lld pas" = "v%lld · %lld steps";
+
+/* settings chrome + suggestions + status (data layer) */
+"Calme" = "Calm";
+"Vif" = "Lively";
+"Professionnel" = "Professional";
+"Chaleureux" = "Warm";
+"Léger" = "Light";
+"Équilibré" = "Balanced";
+"Puissant" = "Powerful";
+"SmolLM2 — Macs 8 Go, ultra rapide." = "SmolLM2 — 8 GB Macs, ultra fast.";
+"Qwen2.5-1.5B — fluide & multilingue. Recommandé." = "Qwen2.5-1.5B — smooth & multilingual. Recommended.";
+"Qwen2.5-3B — réponses plus riches." = "Qwen2.5-3B — richer answers.";
+"8 Go" = "8 GB";
+"16 Go" = "16 GB";
+"24 Go+" = "24 GB+";
+"rapide" = "fast";
+"Fichiers" = "Files";
+"Apps" = "Apps";
+"Recherche" = "Search";
+"Calendrier" = "Calendar";
+"Automatisations" = "Automations";
+"Lire et organiser tes fichiers" = "Read and organize your files";
+"Ouvrir et piloter des apps" = "Open and control apps";
+"Recherche web (désactivé = 100% local)" = "Web search (off = 100% local)";
+"Lire et créer des événements" = "Read and create events";
+"Enchaîner plusieurs actions" = "Chain several actions";
+"Carte des boissons du café" = "The café's drink menu";
+"Palette couleur pour l'identité" = "Color palette for the brand";
+"Budget d'ouverture en graphique" = "Opening budget as a chart";
+"Rétroplanning d'ouverture" = "Opening countdown plan";
+"Appris" = "Learned";
+"En cours" = "In progress";
+"En attente" = "Pending";
+"Longueur des réponses" = "Response length";
+"Créativité (température)" = "Creativity (temperature)";
+"Courte" = "Short";
+"Équilibrée" = "Balanced";
+"Longue" = "Long";
+
+/* home empty-state */
+"Choisis une IA en haut, ou crées-en une." = "Pick an AI up top, or create one.";
+"Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer." = "Ask it anything about you, or describe what you want to generate.";

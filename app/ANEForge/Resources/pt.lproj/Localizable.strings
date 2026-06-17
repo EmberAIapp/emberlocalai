@@ -87,3 +87,45 @@
 "« %@ » et toute sa mémoire seront définitivement supprimées de ce Mac." = "«%@» e toda a sua memória serão eliminadas permanentemente deste Mac.";
 "Faits · %lld" = "Factos · %lld";
 "v%lld · %lld pas" = "v%lld · %lld passos";
+
+/* settings chrome + suggestions + status (data layer) */
+"Calme" = "Calmo";
+"Vif" = "Vivo";
+"Professionnel" = "Profissional";
+"Chaleureux" = "Caloroso";
+"Léger" = "Leve";
+"Équilibré" = "Equilibrado";
+"Puissant" = "Potente";
+"SmolLM2 — Macs 8 Go, ultra rapide." = "SmolLM2 — Macs de 8 GB, ultrarrápido.";
+"Qwen2.5-1.5B — fluide & multilingue. Recommandé." = "Qwen2.5-1.5B — fluido e multilíngue. Recomendado.";
+"Qwen2.5-3B — réponses plus riches." = "Qwen2.5-3B — respostas mais ricas.";
+"8 Go" = "8 GB";
+"16 Go" = "16 GB";
+"24 Go+" = "24 GB+";
+"rapide" = "rápido";
+"Fichiers" = "Ficheiros";
+"Apps" = "Apps";
+"Recherche" = "Pesquisa";
+"Calendrier" = "Calendário";
+"Automatisations" = "Automações";
+"Lire et organiser tes fichiers" = "Ler e organizar os teus ficheiros";
+"Ouvrir et piloter des apps" = "Abrir e controlar apps";
+"Recherche web (désactivé = 100% local)" = "Pesquisa na web (desativada = 100% local)";
+"Lire et créer des événements" = "Ler e criar eventos";
+"Enchaîner plusieurs actions" = "Encadear várias ações";
+"Carte des boissons du café" = "Menu de bebidas do café";
+"Palette couleur pour l'identité" = "Paleta de cores para a identidade";
+"Budget d'ouverture en graphique" = "Orçamento de abertura em gráfico";
+"Rétroplanning d'ouverture" = "Contagem decrescente para a abertura";
+"Appris" = "Aprendido";
+"En cours" = "Em curso";
+"En attente" = "Em espera";
+"Longueur des réponses" = "Comprimento das respostas";
+"Créativité (température)" = "Criatividade (temperatura)";
+"Courte" = "Curta";
+"Équilibrée" = "Equilibrada";
+"Longue" = "Longa";
+
+/* home empty-state */
+"Choisis une IA en haut, ou crées-en une." = "Escolhe uma IA em cima, ou cria uma.";
+"Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer." = "Pergunta-lhe o que quiseres sobre ti, ou descreve o que queres gerar.";

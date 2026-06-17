@@ -63,9 +63,9 @@ struct HomeView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if state.messages.isEmpty {
-                        Text(state.selected == nil
+                        Text(LocalizedStringKey(state.selected == nil
                              ? "Choisis une IA en haut, ou crées-en une."
-                             : "Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer.")
+                             : "Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer."))
                             .font(.emberSerif(17, weight: .regular).italic())
                             .foregroundStyle(.emberMuted)
                             .frame(maxWidth: .infinity)
@@ -220,7 +220,7 @@ struct SuggestionChip: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text("✦ \(label)")
+            (Text(verbatim: "✦ ") + Text(LocalizedStringKey(label)))   // localize the suggestion, keep the glyph
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(Color(hexv: 0xc9a78f))
                 .padding(.horizontal, 14).padding(.vertical, 7)

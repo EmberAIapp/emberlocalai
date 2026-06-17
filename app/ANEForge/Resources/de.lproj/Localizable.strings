@@ -87,3 +87,45 @@
 "« %@ » et toute sa mémoire seront définitivement supprimées de ce Mac." = "„%@“ und ihre gesamte Erinnerung werden endgültig von diesem Mac gelöscht.";
 "Faits · %lld" = "Fakten · %lld";
 "v%lld · %lld pas" = "v%lld · %lld Schritte";
+
+/* settings chrome + suggestions + status (data layer) */
+"Calme" = "Ruhig";
+"Vif" = "Lebhaft";
+"Professionnel" = "Professionell";
+"Chaleureux" = "Herzlich";
+"Léger" = "Leicht";
+"Équilibré" = "Ausgewogen";
+"Puissant" = "Stark";
+"SmolLM2 — Macs 8 Go, ultra rapide." = "SmolLM2 — Macs mit 8 GB, ultraschnell.";
+"Qwen2.5-1.5B — fluide & multilingue. Recommandé." = "Qwen2.5-1.5B — flüssig & mehrsprachig. Empfohlen.";
+"Qwen2.5-3B — réponses plus riches." = "Qwen2.5-3B — reichere Antworten.";
+"8 Go" = "8 GB";
+"16 Go" = "16 GB";
+"24 Go+" = "24 GB+";
+"rapide" = "schnell";
+"Fichiers" = "Dateien";
+"Apps" = "Apps";
+"Recherche" = "Suche";
+"Calendrier" = "Kalender";
+"Automatisations" = "Automatisierungen";
+"Lire et organiser tes fichiers" = "Deine Dateien lesen und ordnen";
+"Ouvrir et piloter des apps" = "Apps öffnen und steuern";
+"Recherche web (désactivé = 100% local)" = "Websuche (aus = 100 % lokal)";
+"Lire et créer des événements" = "Termine lesen und erstellen";
+"Enchaîner plusieurs actions" = "Mehrere Aktionen verketten";
+"Carte des boissons du café" = "Getränkekarte des Cafés";
+"Palette couleur pour l'identité" = "Farbpalette für die Markenidentität";
+"Budget d'ouverture en graphique" = "Eröffnungsbudget als Diagramm";
+"Rétroplanning d'ouverture" = "Countdown bis zur Eröffnung";
+"Appris" = "Gelernt";
+"En cours" = "Läuft";
+"En attente" = "Wartet";
+"Longueur des réponses" = "Antwortlänge";
+"Créativité (température)" = "Kreativität (Temperatur)";
+"Courte" = "Kurz";
+"Équilibrée" = "Ausgewogen";
+"Longue" = "Lang";
+
+/* home empty-state */
+"Choisis une IA en haut, ou crées-en une." = "Wähl oben eine KI, oder erstell eine.";
+"Demande-lui n'importe quoi sur toi, ou décris ce que tu veux générer." = "Frag sie alles über dich, oder beschreib, was du erzeugen willst.";

@@ -321,14 +321,14 @@ private struct SettingsModelCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 // name 15/700 #f0ddcf  ·  radio 18px, space-between
                 HStack(alignment: .center) {
-                    Text(md.name)
+                    Text(LocalizedStringKey(md.name))
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color(hexv: 0xf0ddcf))
                     Spacer(minLength: 8)
                     radio
                 }
                 // desc 12.5px #9a8d84 margin-top 6 line-height 1.4
-                Text(md.desc)
+                Text(LocalizedStringKey(md.desc))
                     .font(.system(size: 12.5))
                     .foregroundStyle(Color(hexv: 0x9a8d84))
                     .lineSpacing(12.5 * 0.4)
@@ -349,7 +349,7 @@ private struct SettingsModelCard: View {
     }
 
     private func pill(_ text: String, fg: Color, bg: some ShapeStyle) -> some View {
-        Text(text)
+        Text(LocalizedStringKey(text))
             .font(.system(size: 10.5))
             .foregroundStyle(fg)
             .padding(.vertical, 3)
@@ -411,11 +411,11 @@ private struct SettingsSlider: View {
         VStack(alignment: .leading, spacing: 10) {
             // label row 13px: title #c9bbb1 weight 600, value #e8b48f
             HStack {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xc9bbb1))
                 Spacer(minLength: 8)
-                Text(valueText)
+                Text(LocalizedStringKey(valueText))
                     .font(.system(size: 13))
                     .foregroundStyle(Color(hexv: 0xe8b48f))
             }
@@ -466,10 +466,10 @@ private struct SettingsPermissionRow: View {
             Text(icon)
                 .font(.system(size: 18))
             VStack(alignment: .leading, spacing: 0) {
-                Text(name)
+                Text(LocalizedStringKey(name))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xecd9c9))
-                Text(desc)
+                Text(LocalizedStringKey(desc))
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color(hexv: 0x8a7d75))
                     .fixedSize(horizontal: false, vertical: true)
