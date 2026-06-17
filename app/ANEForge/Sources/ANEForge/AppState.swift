@@ -671,6 +671,16 @@ final class AppState: ObservableObject {
         catch { errorText = error.localizedDescription }
     }
 
+    private var chatTask: Task<Void, Never>?
+
+    /// Start a reply (cancellable). The orb « interrompre » (§3) cancels this.
+    func sendChat(_ prompt: String) {
+        chatTask?.cancel()
+        chatTask = Task { await self.send(prompt) }
+    }
+    /// Interrupt the running generation — keeps the text already streamed (§3 « interrompre »).
+    func stopGeneration() { chatTask?.cancel() }
+
     func send(_ prompt: String) async {
         guard let name = selected?.name, !prompt.isEmpty else { return }
         messages.append(ChatMessage(role: .user, text: prompt))
@@ -681,13 +691,22 @@ final class AppState: ObservableObject {
         var acc = ""
         do {
             for try await delta in engine.chatStream(name: name, prompt: prompt) {
+                if Task.isCancelled { break }
                 if acc.isEmpty { isBusy = false; talking = true }   // first token → parle (ondulations §3)
                 acc += delta
                 if idx < messages.count { messages[idx].text = acc }
             }
-            if acc.isEmpty, idx < messages.count { messages[idx].text = "…" }
+            if Task.isCancelled, idx < messages.count {
+                messages[idx].text = acc.isEmpty ? "(interrompu)" : acc + " ⏹"
+            } else if acc.isEmpty, idx < messages.count {
+                messages[idx].text = "…"
+            }
         } catch {
-            if idx < messages.count { messages[idx].text = "⚠️ \(error.localizedDescription)" }
+            if Task.isCancelled || (error is CancellationError) {
+                if idx < messages.count { messages[idx].text = acc.isEmpty ? "(interrompu)" : acc + " ⏹" }
+            } else if idx < messages.count {
+                messages[idx].text = "⚠️ \(error.localizedDescription)"
+            }
         }
     }
 }

@@ -29,12 +29,16 @@ struct HomeView: View {
 
     private var hero: some View {
         VStack(spacing: 0) {
-            // orb container — height:188px, centered, tap-to-talk (reserved for Mode Her)
-            Button { /* tap-to-talk is reserved for Mode Her */ } label: {
+            // orb container — height:188px. L'orbe EST le bouton (§3) : pendant la génération
+            // → INTERROMPRE ; au repos → ouvrir Mode Her (la présence, parler).
+            Button {
+                if state.isBusy || state.talking { state.stopGeneration() }
+                else { state.enterHer() }
+            } label: {
                 EmberOrb(mode: heroMode, size: 158).frame(height: 188)
             }
             .buttonStyle(.plain)
-            .help("Parler / interrompre")
+            .help(state.isBusy || state.talking ? "Interrompre" : "Parler à Ember (Mode Her)")
 
             // serif italic caption — margin-top:4px, size 16, #b09a8c, nowrap
             Text(heroMode.caption)
@@ -180,7 +184,7 @@ struct HomeView: View {
         let t = text.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty, !state.isBusy else { return }
         draft = ""
-        Task { await state.send(t) }
+        state.sendChat(t)   // cancellable → l'orbe « interrompre » peut couper
     }
 
     private func generateDoc() {
