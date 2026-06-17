@@ -139,3 +139,9 @@
 "Re-synchroniser" = "Re-sync";
 "Voici ce qu'Ember vient de retenir" = "Here's what Ember just learned";
 "Ce qu'Ember apprend de tes données apparaît dans l'onglet Mémoire." = "What Ember learns from your data appears in the Memory tab.";
+
+/* Apprentissage complet (added) */
+"Apprentissage complet" = "Full learning";
+"Choisis plusieurs dossiers d'un coup (Documents, Bureau, projets…) — Ember apprend tout, en local" = "Pick several folders at once (Documents, Desktop, projects…) — Ember learns it all, locally";
+"Tout apprendre" = "Learn everything";
+"Arrêter" = "Stop";

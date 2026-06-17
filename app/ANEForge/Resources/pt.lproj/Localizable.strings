@@ -139,3 +139,9 @@
 "Re-synchroniser" = "Re-sincronizar";
 "Voici ce qu'Ember vient de retenir" = "Eis o que o Ember acabou de aprender";
 "Ce qu'Ember apprend de tes données apparaît dans l'onglet Mémoire." = "O que o Ember aprende dos teus dados aparece no separador Memória.";
+
+/* Apprentissage complet (added) */
+"Apprentissage complet" = "Aprendizagem completa";
+"Choisis plusieurs dossiers d'un coup (Documents, Bureau, projets…) — Ember apprend tout, en local" = "Escolhe várias pastas de uma vez (Documentos, Ambiente de trabalho, projetos…) — o Ember aprende tudo, em local";
+"Tout apprendre" = "Aprender tudo";
+"Arrêter" = "Parar";

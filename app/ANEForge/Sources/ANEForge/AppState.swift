@@ -370,7 +370,19 @@ final class AppState: ObservableObject {
     /// Learn from any mix of dropped/selected files AND folders (folders are walked for
     /// supported types). 100% local: each file's text → the local model's fact extractor.
     /// Surfaces exactly what was learned (`lastLearned`) so it's tangible.
-    func teachPaths(_ urls: [URL]) async {
+    private var learnTask: Task<Void, Never>?
+
+    /// Start a (cancelable) learning run over files/folders. `full` raises the cap for a
+    /// whole-Mac scan. Callers use this instead of awaiting teachPaths so it can be stopped.
+    func learn(_ urls: [URL], full: Bool = false) {
+        learnTask?.cancel()
+        learnTask = Task { await self.teachPaths(urls, full: full) }
+    }
+
+    /// Stop the running scan — keeps everything learned so far (no rollback).
+    func cancelLearning() { learnTask?.cancel() }
+
+    func teachPaths(_ urls: [URL], full: Bool = false) async {
         guard let name = selected?.name else {
             errorText = "Choisis (ou crée) d'abord une IA."; return
         }
@@ -382,13 +394,15 @@ final class AppState: ObservableObject {
         defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
 
         let before = Set(((try? await engine.memory(name: name)) ?? []).map(\.id))
-        let all = Self.expandToFiles(urls)
+        let cap = full ? 250 : Self.fileCap
+        let all = Self.expandToFiles(urls, cap: cap)
         guard !all.isEmpty else {
             errorText = "Aucun fichier .txt/.md/.pdf à apprendre ici."; return
         }
-        let files = Array(all.prefix(Self.fileCap))
-        var done = 0
+        let files = Array(all.prefix(cap))
+        var done = 0, stopped = false
         for url in files {
+            if Task.isCancelled { stopped = true; break }   // « Arrêter » honoré
             done += 1
             trainingLog.append("Lecture de \(url.lastPathComponent)… (\(done)/\(files.count))")
             if let text = Self.readText(url),
@@ -400,15 +414,17 @@ final class AppState: ObservableObject {
         lastLearned = after.filter { !before.contains($0.id) }
         facts = after
         profileText = await engine.profile(name: name)
-        if all.count > files.count {
-            trainingLog.append("✦ \(lastLearned.count) fait(s) appris · \(files.count)/\(all.count) fichiers (plafond atteint)")
+        if stopped {
+            trainingLog.append("⏹ Arrêté — \(lastLearned.count) fait(s) appris (\(done)/\(files.count) fichiers)")
+        } else if all.count > files.count {
+            trainingLog.append("✦ \(lastLearned.count) fait(s) appris · \(files.count)/\(all.count) fichiers (plafond \(cap))")
         } else {
             trainingLog.append("✦ \(lastLearned.count) fait(s) appris depuis \(files.count) fichier(s)")
         }
     }
 
     /// Flatten files + folders → the list of supported files to read (folders walked recursively).
-    nonisolated static func expandToFiles(_ urls: [URL]) -> [URL] {
+    nonisolated static func expandToFiles(_ urls: [URL], cap: Int = fileCap) -> [URL] {
         let fm = FileManager.default
         var out: [URL] = []
         for u in urls {
@@ -418,7 +434,7 @@ final class AppState: ObservableObject {
                                        options: [.skipsHiddenFiles, .skipsPackageDescendants])
                 while let f = en?.nextObject() as? URL {
                     if supportedExt.contains(f.pathExtension.lowercased()) { out.append(f) }
-                    if out.count >= fileCap * 2 { break }   // hard guard on enormous trees
+                    if out.count >= cap * 2 { break }   // hard guard on enormous trees
                 }
             } else if supportedExt.contains(u.pathExtension.lowercased()) {
                 out.append(u)
@@ -446,23 +462,28 @@ final class AppState: ObservableObject {
         connectedFolders = dict.keys.sorted()
     }
 
-    /// Connect a folder the user picked: remember it (security-scoped bookmark) and learn it now.
-    func connectFolder(_ url: URL) async {
+    func connectFolder(_ url: URL) { connectFolders([url]) }
+
+    /// Connect one or more folders the user picked: remember them (bookmarks) and learn them now.
+    /// `full` = whole-Mac scan cap. This is the « Apprentissage complet » entry point too.
+    func connectFolders(_ urls: [URL], full: Bool = false) {
         guard let ia = selected?.name else {
             errorText = "Choisis (ou crée) d'abord une IA."; return
         }
-        if let data = try? url.bookmarkData(options: [],
-                                            includingResourceValuesForKeys: nil, relativeTo: nil) {
-            var dict = (UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data]) ?? [:]
-            dict[url.path] = data
-            UserDefaults.standard.set(dict, forKey: foldersKey(ia))
-            loadConnectedFolders()
+        var dict = (UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data]) ?? [:]
+        for url in urls {
+            if let data = try? url.bookmarkData(options: [],
+                                                includingResourceValuesForKeys: nil, relativeTo: nil) {
+                dict[url.path] = data
+            }
         }
-        await teachPaths([url])
+        UserDefaults.standard.set(dict, forKey: foldersKey(ia))
+        loadConnectedFolders()
+        learn(urls, full: full)
     }
 
     /// Re-learn a connected folder (resolve its stored bookmark).
-    func resyncFolder(_ path: String) async {
+    func resyncFolder(_ path: String) {
         guard let ia = selected?.name,
               let dict = UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data],
               let data = dict[path] else { return }
@@ -471,7 +492,7 @@ final class AppState: ObservableObject {
                                  relativeTo: nil, bookmarkDataIsStale: &stale) else {
             errorText = "Dossier introuvable : \(path)"; return
         }
-        await teachPaths([url])
+        learn([url])
     }
 
     func disconnectFolder(_ path: String) {

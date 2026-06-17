@@ -24,6 +24,7 @@ struct IngestView: View {
                         ConnectedFolderCard(path: path)
                     }
                     ConnectFolderCard(onPick: pickFolder)
+                    FullLearnCard(onPick: pickFolders)
                 }
 
                 if state.isLearning {
@@ -58,7 +59,21 @@ struct IngestView: View {
         panel.prompt = "Connecter"
         panel.message = "Choisis un dossier — Ember en apprendra les fichiers .txt/.md/.pdf, en local."
         if panel.runModal() == .OK, let url = panel.url {
-            Task { await state.connectFolder(url) }
+            state.connectFolder(url)
+        }
+    }
+
+    // « Apprentissage complet » — choisis PLUSIEURS dossiers d'un coup (Documents, Bureau, projets…).
+    // 100% local, borné, annulable. Chaque dossier choisi accorde son accès (pas d'accès disque global).
+    private func pickFolders() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Apprendre de tout ça"
+        panel.message = "Choisis les dossiers qu'Ember peut apprendre (Documents, Bureau, tes projets…). Tout reste en local."
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            state.connectFolders(panel.urls, full: true)
         }
     }
 
@@ -180,6 +195,15 @@ struct IngestView: View {
                         .foregroundStyle(Color(hexv: 0x8a7d75))
                         .lineLimit(1)
                 }
+                Spacer(minLength: 8)
+                Button { state.cancelLearning() } label: {
+                    Text("Arrêter")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Color(hexv: 0xff8a7a))
+                        .padding(.vertical, 4).padding(.horizontal, 11)
+                        .overlay(Capsule().stroke(Color(hexv: 0xff5a46).opacity(0.4), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
             }
             // progress track — margin-top:11px, height 7, radius 6, bg rgba(0,0,0,0.3)
             IngestProgressBar()   // indeterminate — real training streams, we don't fake a %
@@ -206,8 +230,7 @@ struct IngestView: View {
         panel.allowedContentTypes = [.plainText, .text, .data, .folder]
         panel.prompt = "Apprendre"
         if panel.runModal() == .OK {
-            let urls = panel.urls
-            Task { await state.teachPaths(urls) }
+            state.learn(panel.urls)
         }
     }
 
@@ -216,7 +239,7 @@ struct IngestView: View {
         guard let provider = providers.first else { return false }
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
             guard let url else { return }
-            Task { await state.teachPaths([url]) }
+            Task { @MainActor in state.learn([url]) }
         }
         return true
     }
@@ -293,7 +316,7 @@ private struct ConnectedFolderCard: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
-            Button { Task { await state.resyncFolder(path) } } label: {
+            Button { state.resyncFolder(path) } label: {
                 TagPill(text: state.isLearning ? "…" : "Re-synchroniser",
                         fg: Color(hexv: 0x9fd9ad), bg: Color(hexv: 0x5fd07a).opacity(0.12))
             }
@@ -338,6 +361,47 @@ private struct ConnectFolderCard: View {
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color(hexv: 0xff965a).opacity(0.25),
                               style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+        }
+        .buttonStyle(.plain)
+        .disabled(state.isLearning)
+        .onHover { hover = $0 }
+    }
+}
+
+// MARK: - « Apprentissage complet » — ouverture (choisie) sur plusieurs dossiers du Mac
+private struct FullLearnCard: View {
+    @EnvironmentObject var state: AppState
+    var onPick: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: onPick) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(Color(hexv: 0xff783c).opacity(0.18))
+                    Image(systemName: "sparkles.rectangle.stack.fill")
+                        .font(.system(size: 15)).foregroundStyle(Color(hexv: 0xffb877))
+                }
+                .frame(width: 38, height: 38)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Apprentissage complet")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hexv: 0xecd9c9))
+                    Text("Choisis plusieurs dossiers d'un coup (Documents, Bureau, projets…) — Ember apprend tout, en local")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hexv: 0x8a7d75))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                TagPill(text: "Tout apprendre",
+                        fg: Color(hexv: 0xffd9b8), bg: Color(hexv: 0xff783c).opacity(0.22))
+            }
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(hexv: 0xff783c).opacity(hover ? 0.10 : 0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color(hexv: 0xff965a).opacity(hover ? 0.40 : 0.22), lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(state.isLearning)
