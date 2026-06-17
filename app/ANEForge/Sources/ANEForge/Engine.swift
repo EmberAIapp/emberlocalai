@@ -181,6 +181,28 @@ actor Engine {
         try JSONDecoder().decode(ChatReply.self, from: try await post("/chat", ["name": name, "prompt": prompt]))
     }
 
+    /// Mode Her router (§4.E): "chat" (local conversation) or "task" (DeepSeek work-agent).
+    /// Conversation-first — defaults to chat on any error.
+    func route(name: String, message: String) async -> String {
+        guard let d = try? await post("/route", ["name": name, "message": message]),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let mode = o["mode"] as? String else { return "chat" }
+        return mode
+    }
+
+    /// Ember's local neural voice (Kokoro). Returns WAV bytes, or nil so the caller can
+    /// fall back to the OS voice (e.g. unsupported language or stack unavailable).
+    func tts(text: String, lang: String) async -> Data? {
+        guard let url = URL(string: base + "/tts") else { return nil }
+        var req = URLRequest(url: url); req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 30
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "lang": lang])
+        guard let (d, resp) = try? await URLSession.shared.data(for: req),
+              let h = resp as? HTTPURLResponse, h.statusCode == 200, !d.isEmpty else { return nil }
+        return d
+    }
+
     func reset(name: String) async { _ = try? await post("/reset", ["name": name]) }
 
     func memory(name: String) async throws -> [Fact] {

@@ -3,7 +3,8 @@ import AVFoundation
 import Speech
 
 /// Mains-libres voice for Mode Her (§4.E): local STT via SFSpeechRecognizer (on-device when
-/// available) + local TTS via AVSpeechSynthesizer. No cloud.
+/// available) + a natural local TTS. Ember's voice is the neural Kokoro model served by the
+/// engine (`playWav`); AVSpeechSynthesizer is only the last-resort fallback. No cloud.
 ///
 /// The class is @MainActor (for @Published + UI), but Apple's system callbacks fire on
 /// background queues. To avoid the dispatch_assert_queue trap (a @MainActor closure run
@@ -16,12 +17,15 @@ final class SpeechController: ObservableObject {
     @Published var listening = false
     @Published var authorized = false
     @Published var partial = ""
+    @Published var speaking = false                  // a reply is playing aloud (orb → parle)
 
     private let synth = AVSpeechSynthesizer()
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var consumer: Task<Void, Never>?
+    private var player: AVAudioPlayer?
+    private var speakingOff: Task<Void, Never>?
 
     /// Called (on the main actor) with the final transcript when the user stops speaking.
     var onTranscript: ((String) -> Void)?
@@ -35,17 +39,53 @@ final class SpeechController: ObservableObject {
         }
     }
 
-    // MARK: TTS — Ember speaks (local)
-    func speak(_ text: String, locale: String = "fr-FR") {
+    // MARK: TTS — Ember speaks
+
+    /// Play Ember's neural voice (a WAV produced by the engine's Kokoro model). Preferred path.
+    func playWav(_ data: Data) {
+        stopSpeaking()
+        guard let p = try? AVAudioPlayer(data: data) else { return }
+        player = p
+        speaking = true
+        p.play()
+        let dur = p.duration
+        speakingOff = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(max(0.2, dur) * 1_000_000_000) + 150_000_000)
+            if self.player === p { self.speaking = false; self.player = nil }
+        }
+    }
+
+    /// Last-resort fallback voice (OS synthesizer) when the neural voice is unavailable.
+    func speakFallback(_ text: String, locale: String = "fr-FR") {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
         let u = AVSpeechUtterance(string: t)
         u.voice = AVSpeechSynthesisVoice(language: locale) ?? AVSpeechSynthesisVoice(language: "en-US")
         u.rate = AVSpeechUtteranceDefaultSpeechRate
+        speaking = true
         synth.speak(u)
+        // best-effort: clear the speaking flag shortly after (synth has no main-actor-safe callback here)
+        speakingOff = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(Double(t.count) * 0.06 * 1_000_000_000) + 1_000_000_000)
+            if !self.synth.isSpeaking { self.speaking = false }
+        }
     }
-    func stopSpeaking() { if synth.isSpeaking { synth.stopSpeaking(at: .immediate) } }
+
+    func stopSpeaking() {
+        speakingOff?.cancel(); speakingOff = nil
+        if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
+        player?.stop(); player = nil
+        speaking = false
+    }
+
+    /// Map a 2-letter system language to a BCP-47 locale for the fallback synthesizer.
+    static func locale(for lang: String) -> String {
+        switch lang.prefix(2).lowercased() {
+        case "fr": return "fr-FR"; case "es": return "es-ES"; case "de": return "de-DE"
+        case "pt": return "pt-BR"; case "it": return "it-IT"; default: return "en-US"
+        }
+    }
 
     // MARK: STT — listen (local)
     func toggleListening(locale: String = "fr-FR") {

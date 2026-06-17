@@ -29,6 +29,7 @@ from urllib.parse import urlparse, parse_qs
 
 from aneforge.personal import PersonalModel, MODELS_DIR
 from aneforge.memory import store_for_model
+from aneforge import tts
 
 _QWORDS = ("comment", "quel", "quelle", "qui", "où", "ou ", "quand", "what",
            "who", "where", "when", "how", "is ", "est-ce", "pourquoi")
@@ -302,6 +303,27 @@ class Engine:
     def reset(self, name: str):
         self._history.pop(name, None)
 
+    # --- Mode Her: route a spoken/typed message to CONVERSATION (local chat) or WORK (agent) ---
+    def route(self, message: str) -> str:
+        """Conversation-first: only hand off to the DeepSeek work-agent on a clear request to
+        DO something on the computer; otherwise Ember just talks (local, private)."""
+        m = (message or "").strip()
+        if not m:
+            return "chat"
+        sys = ("Route the user's message for a personal AI on their Mac. "
+               "TASK = they ask Ember to DO something concrete with the computer: read/list files "
+               "or folders, write or draft a note/message, search their files or memory, summarize "
+               "a document, prepare something. CHAT = everything else (greetings, small talk, "
+               "questions about themselves or the world, opinions, feelings). "
+               "Answer with ONE word: TASK or CHAT.")
+        try:
+            with self._lock:
+                out = self.mlx.chat([{"role": "system", "content": sys},
+                                     {"role": "user", "content": m}], max_tokens=4)
+            return "task" if "task" in (out or "").lower() else "chat"
+        except Exception:
+            return "chat"
+
 
 def make_handler(engine: Engine):
     class H(BaseHTTPRequestHandler):
@@ -379,6 +401,30 @@ def make_handler(engine: Engine):
                     if not (MODELS_DIR / b["name"]).exists():
                         return self._send(404, {"error": "IA introuvable"})
                     return self._send(200, engine.chat(b["name"], b["prompt"]))
+                if u.path == "/route":
+                    # Mode Her: decide conversation (local chat) vs work (agent). §4.E
+                    if not engine.ready:
+                        return self._send(503, {"error": "model loading"})
+                    return self._send(200, {"mode": engine.route(b.get("message") or b.get("prompt") or "")})
+                if u.path == "/tts":
+                    # Ember's local neural voice (Kokoro). Returns WAV bytes, or 415 so the
+                    # app falls back to the OS voice if the stack/lang is unavailable.
+                    text = b.get("text") or ""
+                    lang = b.get("lang") or "fr"
+                    if not tts.available():
+                        return self._send(415, {"error": "voix neuronale indisponible"})
+                    try:
+                        wav = tts.synth_wav_bytes(text, lang)
+                    except Exception as e:
+                        return self._send(500, {"error": f"tts: {e}"})
+                    if not wav:
+                        return self._send(204, {})
+                    self.send_response(200)
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(wav)))
+                    self.end_headers()
+                    self.wfile.write(wav)
+                    return
                 if u.path == "/ingest":
                     if not engine.ready:
                         return self._send(503, {"error": "model loading"})
@@ -477,6 +523,13 @@ def _warm(engine: Engine):
         print(f"[ember-daemon] model ready: {engine.model_id}", flush=True)
     except Exception as e:
         print(f"[ember-daemon] model load FAILED: {e}", flush=True)
+    # Warm Ember's neural voice in the background too, so the first spoken reply is instant.
+    try:
+        if tts.available():
+            tts.warmup()
+            print("[ember-daemon] voice ready: Kokoro", flush=True)
+    except Exception as e:
+        print(f"[ember-daemon] voice warmup skipped: {e}", flush=True)
 
 
 if __name__ == "__main__":

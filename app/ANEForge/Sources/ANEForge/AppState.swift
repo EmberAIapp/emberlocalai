@@ -19,6 +19,18 @@ struct AgentEvent: Identifiable, Hashable {
     var denied: Bool = false
 }
 
+/// One turn of the Mode Her conversation (the "flux conversation", §4.E).
+struct HerTurn: Identifiable, Equatable {
+    enum Role { case user, ember }
+    let id = UUID()
+    let role: Role
+    var text: String
+    var working: Bool = false   // an "Ember travaille…" turn whose detail is the work stream
+}
+
+/// A request for Ember to speak a line aloud (consumed by the view → SpeechController).
+struct SpeakRequest: Equatable { let id = UUID(); var text: String; var lang: String }
+
 /// Which primary screen is showing in the main content area.
 enum MainView { case home, ingest, memory, settings }
 
@@ -65,6 +77,18 @@ final class AppState: ObservableObject {
     private var agentSession: String?
     private var agentTask: Task<Void, Never>?
 
+    // Mode Her — TWO FLOWS (§4.E): a conversation (local chat, Ember talks back) + a work
+    // stream (the agent above). Ember chats by default and auto-switches to work when she
+    // detects a real task. `herSpeak` is set whenever a line should be spoken aloud.
+    @Published var herConversation: [HerTurn] = []
+    @Published var herListening = false                // mic is open (orb → écoute)
+    @Published var herSpeaking = false                 // a reply is playing (orb → parle)
+    @Published var herSpeak: SpeakRequest?             // view observes → plays via SpeechController
+    @Published var herMode = "chat"                    // last route decision (UI hint)
+
+    /// The language Ember should speak — follows the system, like the rest of the UI.
+    var herLang: String { Locale.current.language.languageCode?.identifier ?? "fr" }
+
     var onboardOpen: Bool { onboardStep > 0 }
 
     private let engine: Engine
@@ -76,9 +100,10 @@ final class AppState: ObservableObject {
     /// The orb's living state, derived from what Ember is actually doing.
     var orbMode: OrbMode {
         if isLearning { return .apprend }
+        if herListening { return .ecoute }   // Mode Her mic open — §3 "elle écoute"
         if agentBusy { return .reflexion }   // Mode Her agent working — §3 "ça calcule"
         if isBusy { return .reflexion }
-        if talking { return .parle }
+        if herSpeaking || talking { return .parle }
         return .repos
     }
 
@@ -160,7 +185,47 @@ final class AppState: ObservableObject {
     func enterHer() {
         isHer = true; switcherOpen = false
         agentEvents = []; agentPendingGate = nil; agentBusy = false
+        herConversation = []; herListening = false; herSpeaking = false; herSpeak = nil
         if !agentRunning { startAgent() }
+    }
+
+    // MARK: - Mode Her conversation (§4.E): chat by default, auto-route to the work agent
+
+    /// One spoken or typed line from the user. Routes to conversation (local, streamed) or
+    /// work (the DeepSeek agent), keeping a single visible timeline. Ember speaks her reply.
+    func herSend(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let name = selected?.name, !agentBusy else { return }
+        herConversation.append(HerTurn(role: .user, text: text))
+        Task {
+            let mode = await engine.route(name: name, message: text)
+            herMode = mode
+            if mode == "task" {
+                let ack = "D'accord, je m'en occupe."
+                herConversation.append(HerTurn(role: .ember, text: ack, working: true))
+                herSpeak = SpeakRequest(text: ack, lang: herLang)
+                runAgentTask(text)                       // fills agentEvents; speaks summary on done
+            } else {
+                let idx = herConversation.count
+                herConversation.append(HerTurn(role: .ember, text: ""))
+                isBusy = true; defer { isBusy = false; talking = false }
+                var acc = ""
+                do {
+                    for try await delta in engine.chatStream(name: name, prompt: text) {
+                        if acc.isEmpty { isBusy = false; talking = true }
+                        acc += delta
+                        if idx < herConversation.count { herConversation[idx].text = acc }
+                    }
+                } catch { acc = "" }
+                if acc.isEmpty, idx < herConversation.count { herConversation[idx].text = "…" }
+                herSpeak = SpeakRequest(text: acc.isEmpty ? "" : acc, lang: herLang)
+            }
+        }
+    }
+
+    /// Fetch Ember's neural voice (Kokoro wav) for a line — nil → caller uses the OS voice.
+    func ttsData(_ text: String, _ lang: String) async -> Data? {
+        await engine.tts(text: text, lang: lang)
     }
 
     // MARK: - Real agent (Mode Her): DeepSeek brain + local tools, live stream + permission gates
@@ -176,6 +241,11 @@ final class AppState: ObservableObject {
                     if e.type == "session" { self.agentSession = e.detail; continue }
                     if e.type == "gate" { self.agentPendingGate = e }
                     self.agentEvents.append(e)
+                    // Work summary flows back into the conversation timeline + is spoken aloud.
+                    if (e.type == "done" || e.type == "message"), !e.text.isEmpty {
+                        self.herConversation.append(HerTurn(role: .ember, text: e.text))
+                        self.herSpeak = SpeakRequest(text: e.text, lang: self.herLang)
+                    }
                     if e.type == "done" || e.type == "error" { break }
                 }
             } catch {

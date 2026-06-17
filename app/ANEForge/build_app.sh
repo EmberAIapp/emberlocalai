@@ -39,6 +39,26 @@ if [ "${EMBED_ENGINE:-1}" = "1" ] && [ -d "$ENGSRC/venv" ] && [ -d "$ENGSRC/anef
   echo "engine embedded"
 fi
 
+# Embed the Kokoro voice model so Ember's neural voice (Mode Her) works OFFLINE on any Mac.
+# The bundled venv already carries mlx-audio + misaki + phonemizer + a bundled espeak-ng
+# (espeakng_loader's .dylib) via ditto above; only the model weights live in the HF cache.
+KOKORO_SRC="$HOME/.cache/huggingface/hub/models--prince-canuma--Kokoro-82M"
+if [ "${EMBED_ENGINE:-1}" = "1" ] && [ -d "$KOKORO_SRC" ]; then
+  echo "Embedding Kokoro voice model ($(du -sh "$KOKORO_SRC" | cut -f1))…"
+  mkdir -p "$APP/Contents/Resources/engine/hfcache/hub"
+  ditto "$KOKORO_SRC" "$APP/Contents/Resources/engine/hfcache/hub/models--prince-canuma--Kokoro-82M"
+  echo "voice model embedded"
+fi
+# Embed the chat model too, so HF_HOME can point at the bundled cache (offline, any-Mac).
+# (Both models must live there or redirecting HF_HOME would hide the chat model.)
+QWEN_SRC="$HOME/.cache/huggingface/hub/models--mlx-community--Qwen2.5-1.5B-Instruct-4bit"
+if [ "${EMBED_ENGINE:-1}" = "1" ] && [ -d "$QWEN_SRC" ]; then
+  echo "Embedding chat model ($(du -sh "$QWEN_SRC" | cut -f1))…"
+  mkdir -p "$APP/Contents/Resources/engine/hfcache/hub"
+  ditto "$QWEN_SRC" "$APP/Contents/Resources/engine/hfcache/hub/models--mlx-community--Qwen2.5-1.5B-Instruct-4bit"
+  echo "chat model embedded"
+fi
+
 # The real Swift binary becomes a helper; a launcher shim points the engine env vars
 # at the EMBEDDED engine first, falling back to the dev folder if not bundled.
 cp .build/release/ANEForge "$APP/Contents/MacOS/Ember.bin"
@@ -53,6 +73,8 @@ else
   export ANEFORGE_PYTHON="${ANEFORGE_PYTHON:-$HOME/.ember-engine/venv/bin/python}"
   export ANEFORGE_PYTHONPATH="${ANEFORGE_PYTHONPATH:-$HOME/.ember-engine}"
 fi
+# Use the embedded Kokoro voice model (offline) when present.
+if [ -d "$ENG/hfcache" ]; then export HF_HOME="${HF_HOME:-$ENG/hfcache}"; fi
 exec "$DIR/Ember.bin"
 SHIM
 chmod +x "$APP/Contents/MacOS/Ember" "$APP/Contents/MacOS/Ember.bin"
