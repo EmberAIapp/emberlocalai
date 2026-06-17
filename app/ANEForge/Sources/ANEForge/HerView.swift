@@ -41,6 +41,15 @@ struct HerView: View {
                     state.resolveAgentGate(yes, remember: yes)   // spoken "oui" also remembers the scope this session
                 } else if state.agentPendingGate != nil {
                     return                                        // ignore chatter while a gate is open
+                } else if state.voiceSession && state.isEcho(t) {
+                    // The mic caught Ember's OWN voice (no echo cancellation) → ignore it and
+                    // keep listening for the real user. Kills the self-talk feedback loop.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        if state.voiceSession, !speech.listening, !speech.speaking, !state.isBusy, !state.agentBusy {
+                            speech.toggleListening(locale: SpeechController.locale(for: state.herLang))
+                        }
+                    }
                 } else if state.voiceSession && state.isStopPhrase(t) {
                     state.voiceSession = false; speech.stopSpeaking()
                 } else {
@@ -61,6 +70,7 @@ struct HerView: View {
         }
         .onChange(of: state.herSpeak) { _, req in
             guard let req else { return }
+            state.lastSpoken = req.text                         // remember for echo rejection
             Task {
                 if !req.text.isEmpty, let data = await state.ttsData(req.text, req.lang) { speech.playWav(data) }
                 else if !req.text.isEmpty { speech.speakFallback(req.text, locale: SpeechController.locale(for: req.lang)) }
@@ -76,7 +86,9 @@ struct HerView: View {
     private func toggleVoice() { if state.voiceSession { endVoice() } else { startVoice() } }
     private func reopenMic() {
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            // longer settle so the speaker's tail/echo of Ember's voice has died down before
+            // the mic reopens (no AEC) — combined with echo-rejection in onTranscript.
+            try? await Task.sleep(nanoseconds: 700_000_000)
             if state.voiceSession, !speech.listening, !speech.speaking, !state.isBusy, !state.agentBusy {
                 speech.toggleListening(locale: micLocale())
             }

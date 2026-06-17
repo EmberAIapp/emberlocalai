@@ -86,6 +86,22 @@ final class AppState: ObservableObject {
     @Published var herSpeak: SpeakRequest?             // view observes → plays via SpeechController
     @Published var herMode = "chat"                    // last route decision (UI hint)
     @Published var voiceSession = false                // continuous "voice mode" (mains-libres en boucle)
+    @Published var lastSpoken = ""                      // Ember's last spoken line (for echo rejection)
+
+    /// True if a transcript is most likely Ember's OWN voice picked up by the mic (no AEC) —
+    /// i.e. it overlaps heavily with what she just said. Prevents the self-talk feedback loop.
+    func isEcho(_ t: String) -> Bool {
+        let spoken = lastSpoken.lowercased()
+        guard spoken.count > 8, herSpeaking || (lastSpoken.count > 8) else { return false }
+        func words(_ s: String) -> Set<String> {
+            Set(s.lowercased().split { !$0.isLetter }.map(String.init).filter { $0.count > 2 })
+        }
+        let tw = words(t)
+        if tw.isEmpty { return true }                  // empty / pure noise → not a real message
+        let sw = words(spoken)
+        let overlap = Double(tw.filter { sw.contains($0) }.count) / Double(tw.count)
+        return overlap >= 0.5
+    }
 
     /// Spoken phrases that END the continuous voice session (said between turns).
     private static let stopPhrases: Set<String> = [
