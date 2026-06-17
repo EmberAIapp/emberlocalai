@@ -1,14 +1,19 @@
 import SwiftUI
 
-/// Mode Her — mains-libres, conversation fluide (style ChatGPT) + DEUX FLUX SÉPARÉS :
-///   • carte CONVERSATION : on parle à Ember, elle répond (chat local) et parle (voix Kokoro).
-///   • carte TRAVAIL      : l'agent (DeepSeek + permissions) quand une vraie tâche est détectée.
-/// Visuel calme : petite orbe + signal sinusoïdal animé dans la couleur Ember (au lieu d'une
-/// grosse orbe intimidante). La voix d'Ember suit la langue du système.
+/// Mode Her — mains-libres, conversation fluide. The conversation is the spine, UNDER the orb:
+///   • CONVERSATION (la colonne) : trace écrite « Toi » / « Ember », déroulable, sous l'orbe + signal.
+///   • TRAVAIL inline : sous le message qui l'a déclenché, un bloc dépliable montrant en détail ce
+///     que fait l'agent (→ on voit le lien travail ↔ conversation).
+///   • VUE D'ENSEMBLE : une carte synthétique à côté quand le travail est conséquent.
+/// Voix locale (Kokoro) ; l'agent de travail = DeepSeek (cloud), rien sans permission.
 struct HerView: View {
     @EnvironmentObject var state: AppState
     @StateObject private var speech = SpeechController()
     @State private var pulse = false
+
+    private var showOverview: Bool {
+        state.agentBusy || state.agentEvents.contains { $0.type == "tool" || $0.type == "gate" }
+    }
 
     var body: some View {
         ZStack {
@@ -16,9 +21,14 @@ struct HerView: View {
                 stops: [.init(color: Color(hexv: 0x2a1812), location: 0),
                         .init(color: Color(hexv: 0x130b08), location: 0.6),
                         .init(color: Color(hexv: 0x080404), location: 1)],
-                center: UnitPoint(x: 0.5, y: 0.35), startRadius: 0, endRadius: 900)
+                center: UnitPoint(x: 0.5, y: 0.32), startRadius: 0, endRadius: 900)
             .ignoresSafeArea()
-            centerContent
+            HStack(alignment: .top, spacing: 22) {
+                ConversationColumn(speech: speech, onMic: toggleVoice).frame(maxWidth: 640)
+                if showOverview { OverviewCard().frame(width: 286) }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 44).padding(.top, 84).padding(.bottom, 34)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .top) { topBar }
@@ -26,7 +36,6 @@ struct HerView: View {
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
             speech.requestAuth()
             speech.onTranscript = { t in
-                // « stop » / « arrête » between turns ends the continuous voice session.
                 if state.voiceSession && state.isStopPhrase(t) { state.voiceSession = false; speech.stopSpeaking() }
                 else { state.herSend(t) }
             }
@@ -34,23 +43,14 @@ struct HerView: View {
         .onChange(of: speech.listening) { _, v in state.herListening = v }
         .onChange(of: speech.speaking)  { _, v in
             state.herSpeaking = v
-            // Turn-based only: reopen the mic after she speaks. Full-duplex self-manages its loop
-            // (the mic never closed) so the view must NOT also reopen it.
             if state.voiceSession && !v && !speech.fullDuplex { reopenMic() }
         }
         .onChange(of: state.herSpeak) { _, req in
             guard let req else { return }
             Task {
-                // Speak the reply; the loop reopens the mic only AFTER `speaking` goes false.
-                // Never reopen earlier — the mic must not be open while Ember talks (it would
-                // hear herself). This race was why the continuous loop misbehaved.
-                if !req.text.isEmpty, let data = await state.ttsData(req.text, req.lang) {
-                    speech.playWav(data)
-                } else if !req.text.isEmpty {
-                    speech.speakFallback(req.text, locale: SpeechController.locale(for: req.lang))
-                } else if state.voiceSession {
-                    reopenMic()
-                }
+                if !req.text.isEmpty, let data = await state.ttsData(req.text, req.lang) { speech.playWav(data) }
+                else if !req.text.isEmpty { speech.speakFallback(req.text, locale: SpeechController.locale(for: req.lang)) }
+                else if state.voiceSession { reopenMic() }
             }
         }
         .onDisappear { speech.endVoice() }
@@ -60,7 +60,6 @@ struct HerView: View {
     private func startVoice() { state.voiceSession = true; speech.startVoice(locale: micLocale()) }
     private func endVoice() { state.voiceSession = false; speech.endVoice() }
     private func toggleVoice() { if state.voiceSession { endVoice() } else { startVoice() } }
-    /// Continuous mode: a moment after Ember stops speaking, reopen the mic for the next turn.
     private func reopenMic() {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 350_000_000)
@@ -91,62 +90,12 @@ struct HerView: View {
         }
         .padding(.top, 22).padding(.horizontal, 30)
     }
-
-    private var centerContent: some View {
-        HStack(alignment: .top, spacing: 48) {
-            HerLeftColumn(speech: speech).frame(maxWidth: .infinity)
-            VStack(spacing: 16) {
-                ConversationCard(speech: speech, onMic: toggleVoice)
-                if !state.agentEvents.isEmpty { WorkCard() }       // flux TRAVAIL, carte séparée
-            }
-            .frame(width: 460)
-        }
-        .padding(.horizontal, 52).padding(.top, 96).padding(.bottom, 40)
-    }
-}
-
-// MARK: - Left column: small orb + themed sine signal + live caption
-
-private struct HerLeftColumn: View {
-    @EnvironmentObject var state: AppState
-    @ObservedObject var speech: SpeechController
-
-    private var caption: String {
-        if speech.listening { return speech.partial.isEmpty ? "À l'écoute…" : speech.partial }
-        if state.agentBusy, let last = state.agentEvents.last(where: { ["plan","tool","observation"].contains($0.type) }) {
-            return last.text.isEmpty ? "Je m'en occupe…" : last.text
-        }
-        if let last = state.herConversation.last(where: { $0.role == .ember && !$0.text.isEmpty }) { return last.text }
-        return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Parle-moi, ou confie-moi une tâche."
-    }
-
-    private var level: CGFloat {
-        if speech.listening { return 0.9 }
-        if state.herSpeaking { return 0.6 }
-        if state.agentBusy || state.isBusy { return 0.32 }
-        return 0.14
-    }
-
-    var body: some View {
-        VStack(spacing: 26) {
-            EmberOrb(mode: state.orbMode, size: 96).frame(width: 96, height: 96)   // petite — moins intimidante
-            VoiceWave(level: level).frame(width: 380, height: 88)
-            Text(caption)
-                .font(.emberSerif(20, weight: .regular).italic())
-                .foregroundStyle(Color(hexv: 0xd8b9a6))
-                .multilineTextAlignment(.center).lineSpacing(20 * 0.4)
-                .frame(maxWidth: 400).padding(.top, 4)
-                .animation(.easeInOut(duration: 0.3), value: caption)
-        }
-        .padding(.top, 30)
-    }
 }
 
 // MARK: - Animated sinusoidal signal, in the Ember colour theme
 
 private struct VoiceWave: View {
     var level: CGFloat
-
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
             Canvas { ctx, size in
@@ -159,7 +108,7 @@ private struct VoiceWave: View {
                     var p = Path(); var first = true; var x: CGFloat = 0
                     while x <= w {
                         let rel = Double(x / w)
-                        let env = sin(rel * .pi)                                  // taper at both ends
+                        let env = sin(rel * .pi)
                         let y = midY + CGFloat(sin(rel * .pi * freq - t * speed)) * amp * scale * CGFloat(env)
                         let pt = CGPoint(x: x, y: y)
                         if first { p.move(to: pt); first = false } else { p.addLine(to: pt) }
@@ -178,82 +127,101 @@ private struct VoiceWave: View {
     }
 }
 
-// MARK: - Flux CONVERSATION (carte) — bulles + saisie voix/texte
+// MARK: - The conversation column: orb + signal on top, transcript (with inline work) below
 
-private struct ConversationCard: View {
+private struct ConversationColumn: View {
     @EnvironmentObject var state: AppState
     @ObservedObject var speech: SpeechController
     var onMic: () -> Void
     @State private var draft = ""
+    @State private var workExpanded = true
 
+    private var level: CGFloat {
+        if speech.listening { return 0.9 }
+        if state.herSpeaking { return 0.6 }
+        if state.agentBusy || state.isBusy { return 0.32 }
+        return 0.14
+    }
+    private var caption: String {
+        if speech.listening { return speech.partial.isEmpty ? "À l'écoute…" : speech.partial }
+        if let last = state.herConversation.last(where: { $0.role == .ember && !$0.text.isEmpty }) { return last.text }
+        return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Parle-moi, ou confie-moi une tâche."
+    }
     private var canSend: Bool { !state.agentBusy && !draft.trimmingCharacters(in: .whitespaces).isEmpty }
     private func send() { let t = draft; draft = ""; state.herSend(t) }
 
-    private var placeholder: String {
-        if speech.listening { return speech.partial.isEmpty ? "À l'écoute…" : speech.partial }
-        if state.voiceSession { return "En conversation — appuie pour couper" }
-        return "Parle ou écris à Ember…"
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Conversation").font(.system(size: 13, weight: .bold)).tracking(0.5)
-                    .foregroundStyle(Color(hexv: 0xf0ddcf))
-                Spacer()
-                Text(state.voiceSession ? (speech.fullDuplex ? "mains libres · duplex" : "mains libres") : "local")
-                    .font(.system(size: 11)).foregroundStyle(speech.fullDuplex && state.voiceSession ? Color(hexv: 0x7fd095) : Color.emberMuted)
-                    .padding(.vertical, 3).padding(.horizontal, 9)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.06)))
+        VStack(spacing: 16) {
+            // Presence
+            VStack(spacing: 18) {
+                EmberOrb(mode: state.orbMode, size: 88).frame(width: 88, height: 88)
+                VoiceWave(level: level).frame(width: 320, height: 70)
+                Text(caption)
+                    .font(.emberSerif(18, weight: .regular).italic())
+                    .foregroundStyle(Color(hexv: 0xd8b9a6))
+                    .multilineTextAlignment(.center).lineSpacing(18 * 0.4)
+                    .frame(maxWidth: 460).lineLimit(3)
+                    .animation(.easeInOut(duration: 0.3), value: caption)
             }
+            .padding(.top, 8)
+
             transcript
+
             input
             footer
         }
-        .padding(22).glassCard(corner: 22)
     }
 
     @ViewBuilder private var transcript: some View {
         if state.herConversation.isEmpty {
-            Text("Dis « Bonjour » ou pose-moi une question — je te réponds à voix haute. Confie-moi une tâche (« liste mes fichiers ») et je passe en mode travail, dans la carte du dessous.")
-                .font(.system(size: 12)).foregroundStyle(Color.emberMuted)
-                .fixedSize(horizontal: false, vertical: true).padding(.vertical, 8)
+            Text("Dis « Bonjour » ou pose-moi une question — je te réponds à voix haute. Confie-moi une tâche (« liste mes fichiers ») et tu verras le travail se dérouler ici, sous ta demande.")
+                .font(.system(size: 12.5)).foregroundStyle(Color.emberMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 440).frame(maxHeight: .infinity, alignment: .center)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(state.herConversation) { turn in bubble(turn) }
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("— L'ÉCHANGE —").font(.system(size: 10, weight: .medium)).tracking(1.4)
+                            .foregroundStyle(Color(hexv: 0x8a7a70)).frame(maxWidth: .infinity, alignment: .center)
+                        ForEach(state.herConversation) { turn in
+                            bubble(turn)
+                            if turn.working { WorkInline(expanded: $workExpanded) }
+                        }
                         Color.clear.frame(height: 1).id("bottom")
                     }
+                    .padding(.horizontal, 2)
                 }
-                .frame(maxHeight: 300)
+                .frame(maxHeight: .infinity)
                 .onChange(of: state.herConversation) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: state.agentEvents) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
         }
     }
 
     private func bubble(_ turn: HerTurn) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            if turn.role == .user { Spacer(minLength: 48) }
-            Group {
+            if turn.role == .user { Spacer(minLength: 60) }
+            VStack(alignment: turn.role == .user ? .trailing : .leading, spacing: 3) {
+                Text(turn.role == .user ? "TOI" : "EMBER")
+                    .font(.system(size: 9.5, weight: .medium)).tracking(0.8)
+                    .foregroundStyle(turn.role == .user ? Color(hexv: 0x8a7a70) : Color(hexv: 0xc79a82))
                 if turn.role == .ember {
-                    HStack(alignment: .top, spacing: 9) {
-                        Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xff9a4a)).frame(width: 16)
-                        Text(turn.text.isEmpty ? "…" : turn.text)
-                            .font(.emberSerif(15, weight: .regular)).foregroundStyle(Color(hexv: 0xf0ddcf))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 9).padding(.horizontal, 12)
-                    .background(RoundedRectangle(cornerRadius: 13).fill(Color(hexv: 0xff783c).opacity(0.08)))
+                    Text(turn.text.isEmpty ? "…" : turn.text)
+                        .font(.emberSerif(14.5, weight: .regular)).foregroundStyle(Color(hexv: 0xf0ddcf))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 9).padding(.horizontal, 13)
+                        .background(RoundedRectangle(cornerRadius: 13).fill(Color(hexv: 0xff783c).opacity(0.09)))
                 } else {
                     Text(turn.text)
                         .font(.system(size: 13)).foregroundStyle(Color(hexv: 0xe8d4c6))
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.vertical, 8).padding(.horizontal, 12)
-                        .background(RoundedRectangle(cornerRadius: 13).fill(Color.white.opacity(0.05)))
+                        .padding(.vertical, 9).padding(.horizontal, 13)
+                        .background(RoundedRectangle(cornerRadius: 13).fill(Color.white.opacity(0.06)))
                 }
             }
-            if turn.role == .ember { Spacer(minLength: 48) }
+            if turn.role == .ember { Spacer(minLength: 60) }
         }
     }
 
@@ -267,7 +235,8 @@ private struct ConversationCard: View {
             }
             .buttonStyle(.plain).help(state.voiceSession ? "Couper la conversation" : "Conversation vocale (mains libres)")
 
-            TextField(placeholder, text: $draft)
+            TextField(speech.listening ? (speech.partial.isEmpty ? "À l'écoute…" : speech.partial)
+                       : (state.voiceSession ? "En conversation — appuie pour couper" : "Parle ou écris à Ember…"), text: $draft)
                 .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
                 .onSubmit { if canSend { send() } }
 
@@ -280,55 +249,127 @@ private struct ConversationCard: View {
         .padding(.horizontal, 12).padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.05)))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color(hexv: 0xff965a).opacity(0.25), lineWidth: 1))
+        .frame(maxWidth: 560)
     }
 
     private var footer: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 8) {
             Image(systemName: "checkmark.shield").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x7fd095))
-            // Honnêteté §2.4 : voix & conversation 100% locales ; l'agent de travail = DeepSeek (cloud).
-            Text("Voix & conversation 100% locales")
+            Text(state.voiceSession && speech.fullDuplex ? "Voix & conversation 100% locales · duplex" : "Voix & conversation 100% locales")
                 .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9bbfa3))
         }
     }
 }
 
-// MARK: - Flux TRAVAIL (carte séparée) — l'agent : étapes live + permissions
+// MARK: - Inline work block (anchored under the message that triggered it)
 
-private struct WorkCard: View {
+private struct WorkInline: View {
     @EnvironmentObject var state: AppState
+    @Binding var expanded: Bool
+
+    private var steps: Int { state.agentEvents.filter { ["tool", "observation", "plan"].contains($0.type) }.count }
+    private var open: Bool { expanded || state.agentPendingGate != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "gearshape.2").font(.system(size: 11)).foregroundStyle(Color(hexv: 0xffa050))
-                Text("Travail").font(.system(size: 13, weight: .bold)).tracking(0.5).foregroundStyle(Color(hexv: 0xf0ddcf))
-                Spacer()
-                Text(state.agentBusy ? "en cours · DeepSeek" : "agent · DeepSeek")
-                    .font(.system(size: 11)).foregroundStyle(Color.emberMuted)
-                    .padding(.vertical, 3).padding(.horizontal, 9)
-                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.06)))
-            }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(state.agentEvents) { e in
-                        HerEventRow(event: e,
-                                    onAllow: { state.resolveAgentGate(true) },
-                                    onDeny: { state.resolveAgentGate(false) })
+        if !state.agentEvents.isEmpty {
+            HStack(alignment: .top, spacing: 0) {
+                Rectangle().fill(Color(hexv: 0xffa050).opacity(0.5)).frame(width: 2)
+                VStack(alignment: .leading, spacing: 8) {
+                    Button { expanded.toggle() } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: state.agentBusy ? "gearshape.2" : "checkmark.seal").font(.system(size: 12))
+                                .foregroundStyle(Color(hexv: 0xffa050))
+                            Text("Travail · \(steps) étape\(steps > 1 ? "s" : "")")
+                                .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xffa050))
+                            Spacer()
+                            Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 11))
+                                .foregroundStyle(Color(hexv: 0x8a7a70))
+                            Text(open ? "replier" : "dérouler").font(.system(size: 11)).foregroundStyle(Color(hexv: 0x8a7a70))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    if open {
+                        ForEach(state.agentEvents) { e in
+                            HerEventRow(event: e,
+                                        onAllow: { state.resolveAgentGate(true) },
+                                        onDeny: { state.resolveAgentGate(false) })
+                        }
                     }
                 }
+                .padding(.leading, 11)
+                Spacer(minLength: 40)
             }
-            .frame(maxHeight: 240)
-            HStack(spacing: 9) {
-                Image(systemName: "lock.shield").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x9bbfa3))
-                Text("Rien sans ta permission · cloud (DeepSeek)")
-                    .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9bbfa3))
-            }
+            .padding(.vertical, 2)
         }
-        .padding(22).glassCard(corner: 22)
     }
 }
 
-// MARK: - One agent event row (work stream)
+// MARK: - Synthetic overview (à côté, quand le travail est conséquent)
+
+private struct OverviewCard: View {
+    @EnvironmentObject var state: AppState
+
+    private var done: Int { state.agentEvents.filter { $0.type == "observation" }.count }
+    private var planned: Int { max(done, state.agentEvents.filter { $0.type == "tool" }.count) }
+    private var tools: [AgentEvent] { state.agentEvents.filter { $0.type == "tool" } }
+    private var status: (String, Color) {
+        if state.agentPendingGate != nil { return ("Permission requise", Color(hexv: 0xffd089)) }
+        if state.agentBusy { return ("En cours…", Color(hexv: 0xffa050)) }
+        return ("Terminé", Color(hexv: 0x7fd095))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 7) {
+                Image(systemName: "rectangle.3.group").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xc79a82))
+                Text("Vue d'ensemble").font(.system(size: 13, weight: .bold)).foregroundStyle(Color(hexv: 0xf0ddcf))
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                Circle().fill(status.1).frame(width: 7, height: 7)
+                Text(status.0).font(.system(size: 12, weight: .medium)).foregroundStyle(status.1)
+                Spacer()
+                Text("\(done)/\(max(planned, 1)) étapes").font(.system(size: 11)).foregroundStyle(Color.emberMuted)
+            }
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
+            if tools.isEmpty {
+                Text("La synthèse des étapes s'affiche ici dès qu'Ember agit.")
+                    .font(.system(size: 11)).foregroundStyle(Color.emberMuted).fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(tools.enumerated()), id: \.element.id) { idx, e in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: idx < done ? "checkmark.circle.fill" : "circle.dotted")
+                                .font(.system(size: 12)).foregroundStyle(idx < done ? Color(hexv: 0x7fd095) : Color(hexv: 0x9a8d84))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(Self.label(e.tool)).font(.system(size: 12, weight: .medium)).foregroundStyle(Color(hexv: 0xe8d4c6))
+                                if !e.detail.isEmpty {
+                                    Text(e.detail).font(.system(size: 10.5)).foregroundStyle(Color.emberMuted).lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18).frame(maxHeight: 420, alignment: .top).glassCard(corner: 20)
+    }
+
+    static func label(_ tool: String) -> String {
+        switch tool {
+        case "list_facts":    return "Mémoire"
+        case "search_memory": return "Recherche mémoire"
+        case "list_dir":      return "Dossier"
+        case "read_file":     return "Lecture fichier"
+        case "write_note":    return "Note / brouillon"
+        default:              return tool.isEmpty ? "Étape" : tool
+        }
+    }
+}
+
+// MARK: - One agent event row (work detail)
 
 private struct HerEventRow: View {
     let event: AgentEvent
@@ -338,7 +379,7 @@ private struct HerEventRow: View {
     var body: some View {
         switch event.type {
         case "gate":               gateRow
-        case "done", "message":    EmptyView()   // le résumé apparaît comme bulle Ember dans la conversation
+        case "done", "message":    EmptyView()
         case "error":              stepRow(icon: "exclamationmark.triangle.fill", tint: Color(hexv: 0xff6b5a), title: "Erreur", detail: event.text)
         case "tool":               stepRow(icon: toolIcon, tint: Color(hexv: 0xffa050), title: toolTitle, detail: event.detail)
         case "observation":        stepRow(icon: event.denied ? "xmark.circle.fill" : "checkmark.circle.fill",
@@ -370,9 +411,9 @@ private struct HerEventRow: View {
 
     private func stepRow(icon: String, tint: Color, title: String?, detail: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(tint).frame(width: 18)
+            Image(systemName: icon).font(.system(size: 12.5)).foregroundStyle(tint).frame(width: 17)
             VStack(alignment: .leading, spacing: 1) {
-                if let title { Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hexv: 0xe8d4c6)) }
+                if let title { Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xe8d4c6)) }
                 if !detail.isEmpty {
                     Text(detail).font(.system(size: 11)).foregroundStyle(Color.emberMuted)
                         .lineLimit(title == nil ? 4 : 2).fixedSize(horizontal: false, vertical: true)
@@ -380,7 +421,7 @@ private struct HerEventRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6).padding(.horizontal, 9).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 5).padding(.horizontal, 4).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var gateDesc: String {
@@ -395,11 +436,10 @@ private struct HerEventRow: View {
     private var gateRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "lock.shield").font(.system(size: 13)).foregroundStyle(Color(hexv: 0xffd089)).frame(width: 18)
+                Image(systemName: "lock.shield").font(.system(size: 12.5)).foregroundStyle(Color(hexv: 0xffd089)).frame(width: 17)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Permission : \(event.scope)").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(hexv: 0xffd089))
-                    Text(gateDesc).font(.system(size: 11)).foregroundStyle(Color.emberMuted)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Permission : \(event.scope)").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xffd089))
+                    Text(gateDesc).font(.system(size: 11)).foregroundStyle(Color.emberMuted).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
@@ -407,7 +447,7 @@ private struct HerEventRow: View {
                 Button(action: onAllow) { gateLabel("Autoriser", fill: true) }.buttonStyle(.plain)
                 Button(action: onDeny)  { gateLabel("Refuser", fill: false) }.buttonStyle(.plain)
             }
-            .padding(.leading, 28)
+            .padding(.leading, 27)
         }
         .padding(.vertical, 8).padding(.horizontal, 9)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hexv: 0xffc850).opacity(0.08)))
