@@ -87,6 +87,8 @@ final class AppState: ObservableObject {
     @Published var herMode = "chat"                    // last route decision (UI hint)
     @Published var voiceSession = false                // continuous "voice mode" (mains-libres en boucle)
     @Published var lastSpoken = ""                      // Ember's last spoken line (for echo rejection)
+    @Published var trustMode = false                   // "mode confiance": auto-allow non-Tier-3 actions
+    @Published var fullDuplexWanted = false            // opt-in to talk-over (AEC) vs reliable turn-based
 
     /// True if a transcript is most likely Ember's OWN voice picked up by the mic (no AEC) —
     /// i.e. it overlaps heavily with what she just said. Prevents the self-talk feedback loop.
@@ -265,7 +267,7 @@ final class AppState: ObservableObject {
         agentTask = Task { [weak self] in
             guard let self else { return }
             do {
-                for try await e in engine.agentStream(name: name, task: t) {
+                for try await e in engine.agentStream(name: name, task: t, trust: trustMode) {
                     if e.type == "session" { self.agentSession = e.detail; continue }
                     if e.type == "gate" { self.agentPendingGate = e }
                     self.agentEvents.append(e)

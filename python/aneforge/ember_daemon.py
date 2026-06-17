@@ -141,6 +141,7 @@ class _AgentSession:
         self._gate = threading.Event()
         self._decision = False
         self.allowed: set = set()      # scopes the user said "toujours" for THIS session
+        self.auto_allow = False        # "mode confiance": auto-allow every non-Tier-3 scope
         self._pending_scope = None
 
     def emit(self, event: dict):
@@ -148,9 +149,10 @@ class _AgentSession:
 
     def ask_permission(self, tool: str, args: dict, scope: str) -> bool:
         """Emit a gate event, then block until the user resumes (via /agent_resume).
-        If the user already chose "toujours" for this scope this session, allow silently
-        (mains libres — no repeated prompt). Tier-3 scopes (send/delete) are never remembered."""
-        if scope and scope in self.allowed:
+        Allow silently if the scope was remembered ("toujours") OR if "mode confiance" is on —
+        EXCEPT Tier-3 scopes (send/delete/screen), which ALWAYS require an explicit confirm."""
+        from aneforge.agent import TIER3_SCOPES
+        if scope and scope not in TIER3_SCOPES and (scope in self.allowed or self.auto_allow):
             return True
         self._pending_scope = scope
         self.emit({"type": "gate", "tool": tool, "args": args, "scope": scope})
@@ -238,11 +240,15 @@ class Engine:
 
     def _persona(self, name: str, prompt: str) -> str:
         s = _load_settings(name)
-        # Language-neutral default (no hard-coded French — §2.7): instruct the model to
-        # mirror the user's language so Ember answers FR→FR, EN→EN, ES→ES, etc.
-        lines = [s.get("persona") or
-                 ("You are Ember, the user's 100% local personal AI. You are warm, concise, "
-                  "and you ALWAYS reply in the same language as the user's message.")]
+        # Identity guard — ALWAYS included (even with a custom persona): the small local model
+        # otherwise sometimes claims to be "Claude"/another model. Language-neutral (§2.7): mirror
+        # the user's language.
+        identity = (
+            f"You are Ember — the user's personal, on-device AI (this instance is named « {name} »). "
+            "Your name is Ember. You are NOT Claude, GPT, Qwen, Llama, Gemini, or any other model or "
+            "company's assistant — never say or imply otherwise. If asked who or what you are, you are "
+            "simply Ember, the user's local AI. ALWAYS reply in the same language as the user's message.")
+        lines = [s.get("persona") or "You are warm, concise and genuinely helpful.", identity]
         facts = store_for_model(name).relevant(prompt)
         if facts:
             lines.append(
@@ -528,6 +534,7 @@ def make_handler(engine: Engine):
                     task = b.get("task") or b.get("prompt") or ""
                     sid = b.get("session") or uuid.uuid4().hex
                     sess = _AgentSession()
+                    sess.auto_allow = bool(b.get("trust"))   # "mode confiance" → no prompt (non-Tier-3)
                     _AGENT_SESSIONS[sid] = sess
                     self.send_response(200)
                     self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")

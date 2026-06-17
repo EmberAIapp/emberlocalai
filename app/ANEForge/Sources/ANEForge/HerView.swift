@@ -72,7 +72,7 @@ struct HerView: View {
             guard let req else { return }
             state.lastSpoken = req.text                         // remember for echo rejection
             Task {
-                if !req.text.isEmpty, let data = await state.ttsData(req.text, req.lang) { speech.playWav(data) }
+                if !req.text.isEmpty, let data = await state.ttsData(req.text, req.lang) { speech.playWav(data, text: req.text) }
                 else if !req.text.isEmpty { speech.speakFallback(req.text, locale: SpeechController.locale(for: req.lang)) }
                 else if state.voiceSession { reopenMic() }
             }
@@ -81,7 +81,11 @@ struct HerView: View {
     }
 
     private func micLocale() -> String { SpeechController.locale(for: state.herLang) }
-    private func startVoice() { state.voiceSession = true; speech.startVoice(locale: micLocale()) }
+    private func startVoice() {
+        speech.allowFullDuplex = state.fullDuplexWanted   // opt-in talk-over, else reliable turn-based
+        state.voiceSession = true
+        speech.startVoice(locale: micLocale())
+    }
     private func endVoice() { state.voiceSession = false; speech.endVoice() }
     private func toggleVoice() { if state.voiceSession { endVoice() } else { startVoice() } }
     private func reopenMic() {
@@ -281,9 +285,31 @@ private struct ConversationColumn: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.shield").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x7fd095))
-            Text(state.voiceSession && speech.fullDuplex ? "Voix & conversation 100% locales · duplex" : "Voix & conversation 100% locales")
+            Text(state.voiceSession && speech.fullDuplex ? "Voix 100% locale · duplex" : "Voix & conversation 100% locales")
                 .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9bbfa3))
+            Spacer(minLength: 6)
+            Button { state.fullDuplexWanted.toggle() } label: {
+                pill(on: state.fullDuplexWanted, icon: "waveform", label: state.fullDuplexWanted ? "Duplex ON" : "Duplex")
+            }
+            .buttonStyle(.plain)
+            .help("Te couper la parole en parlant (annulation d'écho). Expérimental — au casque c'est idéal.")
+            Button { state.trustMode.toggle() } label: {
+                pill(on: state.trustMode, icon: state.trustMode ? "bolt.shield.fill" : "bolt.shield",
+                     label: state.trustMode ? "Confiance ON" : "Confiance")
+            }
+            .buttonStyle(.plain)
+            .help("Auto-autoriser les actions non sensibles cette session (l'envoi/suppression reste toujours confirmé)")
         }
+    }
+
+    private func pill(on: Bool, icon: String, label: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon); Text(label)
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .foregroundStyle(on ? Color(hexv: 0xffb877) : Color(hexv: 0x9a8d84))
+        .padding(.vertical, 4).padding(.horizontal, 9)
+        .background(RoundedRectangle(cornerRadius: 9).fill(on ? Color(hexv: 0xff7a3a).opacity(0.16) : Color.white.opacity(0.05)))
     }
 }
 

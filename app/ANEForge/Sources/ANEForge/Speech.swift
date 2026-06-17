@@ -68,6 +68,18 @@ final class SpeechController: ObservableObject {
     private var simplePlayer: AVAudioPlayer?
     private var speakingOff: Task<Void, Never>?
     private var localeId = "fr-FR"
+    private var spokenText = ""          // what Ember is currently saying (reject false barge-ins)
+
+    /// True if a recognized partial is mostly Ember's own current speech (imperfect AEC residual),
+    /// so we DON'T treat it as the user barging in.
+    private func echoLike(_ t: String) -> Bool {
+        let s = spokenText.lowercased()
+        guard s.count > 8 else { return false }
+        func w(_ x: String) -> Set<String> { Set(x.lowercased().split { !$0.isLetter }.map(String.init).filter { $0.count > 2 }) }
+        let tw = w(t); if tw.isEmpty { return true }
+        let sw = w(s)
+        return Double(tw.filter { sw.contains($0) }.count) / Double(tw.count) >= 0.4
+    }
 
     // MARK: - Authorisation
     func requestAuth() { Task { self.authorized = (await Self.authStatus() == .authorized) } }
@@ -144,7 +156,9 @@ final class SpeechController: ObservableObject {
     private func handleFD(_ u: STTUpdate) {
         if let t = u.text, !t.isEmpty {
             if mode == .speaking {
-                if t.count >= 3 { bargeIn(with: t) }     // user talks over Ember → cut her off
+                // Only a REAL interruption cuts Ember off: a long-enough partial that isn't just
+                // her own residual voice (imperfect AEC). This is what makes full-duplex stable.
+                if t.count >= 6 && !echoLike(t) { bargeIn(with: t) }
                 return
             }
             partial = t; fdHeard = true; scheduleFDSilence()
@@ -231,7 +245,8 @@ final class SpeechController: ObservableObject {
 
     // MARK: - TTS (routes to the active engine; AVSpeech only as last resort)
 
-    func playWav(_ data: Data) {
+    func playWav(_ data: Data, text: String = "") {
+        spokenText = text
         if fdEngine != nil { playFDWav(data); return }
         // turn-based playback (separate AVAudioPlayer)
         stopSimplePlayback()
