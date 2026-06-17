@@ -233,14 +233,22 @@ SENSITIVE = {
     "open_app": "Apps", "open_url": "Apps", "reveal_in_finder": "Fichiers",
     "spotlight_search": "Fichiers", "search_text": "Fichiers",
     "read_notes": "Notes", "read_reminders": "Rappels", "read_calendar": "Agenda",
+    # Reading the user's PERSONAL MEMORY is sensitive too — its content is sent to the cloud
+    # brain, so it must be gated (was previously ungated → silent exfiltration). §7.
+    "list_facts": "Mémoire", "search_memory": "Mémoire",
     # P2 — write/create (reversible), each gated:
     "write_clipboard": "Presse-papiers", "create_note": "Notes", "create_reminder": "Rappels",
     "create_event": "Agenda", "move_file": "Fichiers", "copy_file": "Fichiers",
     "music_control": "Musique", "draft_mail": "Mail", "run_shortcut": "Raccourcis",
 }
+# Cloud egress consent — Mode Her's brain is DeepSeek (cloud): the task + every tool RESULT
+# (file contents, notes, memory…) is sent there. The user must explicitly consent to that egress,
+# once per task, BEFORE anything leaves. Tier-3 → never auto-allowed, never silently remembered.
+CLOUD_SCOPE = "Cloud (DeepSeek)"
 # Scopes that must NEVER be auto-allowed / "remembered" — always per-action confirm. run_shortcut
 # can do anything (it runs a user shortcut), so it's Tier-3 too. (P3 send/delete/screen come later.)
-TIER3_SCOPES = {"Raccourcis", "Mail-envoi", "Messages-envoi", "Agenda-invitation", "Fichiers-suppr", "Écran"}
+TIER3_SCOPES = {CLOUD_SCOPE, "Raccourcis", "Mail-envoi", "Messages-envoi",
+                "Agenda-invitation", "Fichiers-suppr", "Écran"}
 
 
 def _exec(name, args, ia):
@@ -443,6 +451,11 @@ def run_agent(ia, task, emit, ask_permission, max_steps=8):
            "appelle finish avec un court résumé.")
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": task}]
     emit({"type": "plan", "text": task})
+    # CONSENTEMENT CLOUD explicite (§7) — rien ne part avant un OUI clair. Le cerveau est DeepSeek :
+    # la tâche + les résultats d'outils (fichiers, notes, mémoire lus) y seront envoyés.
+    if not ask_permission("__cloud__", {"task": task}, CLOUD_SCOPE):
+        emit({"type": "done", "summary": "Tâche annulée — envoi vers le cloud refusé. Rien n'est sorti."})
+        return
     for _ in range(max_steps):
         try:
             msg = _deepseek(messages, TOOLS)

@@ -550,6 +550,9 @@ private struct HerEventRow: View {
 
     private var gateDesc: String {
         switch event.tool {
+        case "__cloud__":        return "Envoyer ta demande — et les résultats des outils (fichiers, notes, mémoire lus) — à DeepSeek (cloud) pour cette tâche. Rien n'est encore sorti."
+        case "list_facts":       return "Lire tes faits de mémoire personnelle"
+        case "search_memory":    return "Chercher dans ta mémoire personnelle"
         case "write_note":       return "Écrire « \(event.detail) » dans tes brouillons"
         case "read_file":        return "Lire « \(event.detail) »"
         case "list_dir":         return "Lister « \(event.detail) »"
@@ -574,6 +577,20 @@ private struct HerEventRow: View {
         }
     }
 
+    // Tools whose RESULT (content read) is sent to the cloud brain → warn before consenting.
+    private var cloudWarn: String? {
+        let exfil: Set<String> = ["read_file", "list_dir", "read_notes", "read_reminders",
+                                  "read_calendar", "spotlight_search", "search_text",
+                                  "read_clipboard", "list_facts", "search_memory"]
+        return exfil.contains(event.tool) ? "Le contenu lu sera envoyé à DeepSeek (cloud)." : nil
+    }
+
+    // Tier-3 scopes always re-ask (no "Toujours"): the cloud egress, shortcuts, sends, deletes…
+    private var isTier3: Bool {
+        ["Cloud (DeepSeek)", "Raccourcis", "Mail-envoi", "Messages-envoi",
+         "Agenda-invitation", "Fichiers-suppr", "Écran"].contains(event.scope)
+    }
+
     private var gateRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
@@ -581,16 +598,27 @@ private struct HerEventRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Permission : \(event.scope)").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xffd089))
                     Text(gateDesc).font(.system(size: 11)).foregroundStyle(Color.emberMuted).fixedSize(horizontal: false, vertical: true)
+                    if let warn = cloudWarn {
+                        HStack(spacing: 5) {
+                            Image(systemName: "cloud.fill").font(.system(size: 9))
+                            Text(warn).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.system(size: 10)).foregroundStyle(Color(hexv: 0xff9a5a)).padding(.top, 2)
+                    }
                 }
                 Spacer(minLength: 0)
             }
             HStack(spacing: 6) {
                 Button(action: onAllow)  { gateLabel("Autoriser", fill: true) }.buttonStyle(.plain)
-                Button(action: onAlways) { gateLabel("Toujours", fill: false) }.buttonStyle(.plain)
+                if !isTier3 {
+                    Button(action: onAlways) { gateLabel("Toujours", fill: false) }.buttonStyle(.plain)
+                }
                 Button(action: onDeny)   { gateLabel("Refuser", fill: false) }.buttonStyle(.plain)
             }
             .padding(.leading, 27)
-            Text("« Toujours » = ne plus demander pour « \(event.scope) » cette session. Tu peux aussi répondre « oui » / « non » à voix haute.")
+            Text(isTier3
+                 ? "Action sensible — Ember te redemandera à chaque fois (pas de « toujours »). Tu peux répondre « oui » / « non » à voix haute."
+                 : "« Toujours » = ne plus redemander pour CE chemin cette session. Tu peux aussi répondre « oui » / « non » à voix haute.")
                 .font(.system(size: 10)).foregroundStyle(Color(hexv: 0x8a7a70))
                 .fixedSize(horizontal: false, vertical: true).padding(.leading, 27)
         }

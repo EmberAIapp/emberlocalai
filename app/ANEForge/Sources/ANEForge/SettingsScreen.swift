@@ -306,19 +306,21 @@ struct SettingsScreen: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Moniteur réseau : 0 octet sorti")
+                Text("Confidentialité — local par défaut")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color(hexv: 0xbfe9c9))
-                Text("Données, modèle et mémoire vivent uniquement sur ce Mac. La preuve, pas la promesse.")
+                Text(state.hasKey
+                     ? "Chat, mémoire et apprentissage restent 100% sur ce Mac. Le Mode Her peut utiliser DeepSeek (cloud) — uniquement ce que tu autorises, tâche par tâche."
+                     : "Chat, mémoire et apprentissage restent 100% sur ce Mac. Aucun cerveau cloud n'est configuré : tout est local.")
                     .font(.system(size: 12.5))
                     .foregroundStyle(Color(hexv: 0x9bbfa3))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("↑ 0 ko · ↓ 0 ko")
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(Color(hexv: 0x7fd095))
+            Text(state.hasKey ? "cloud : sur accord" : "100% local")
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(state.hasKey ? Color(hexv: 0xffb877) : Color(hexv: 0x7fd095))
                 .padding(.vertical, 8)
                 .padding(.horizontal, 14)
                 .background(

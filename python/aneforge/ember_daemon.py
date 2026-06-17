@@ -183,26 +183,43 @@ def _is_real_fact(text: str) -> bool:
 _AGENT_SESSIONS: dict = {}
 
 
+def _primary_arg(args: dict) -> str:
+    """The identifying argument of a tool call (path/file/query/…) — used to remember
+    permission PER-PATH, not per whole scope (so 'Toujours' on one file doesn't open all)."""
+    if not isinstance(args, dict):
+        return ""
+    for k in ("path", "filename", "file", "dir", "directory", "query", "pattern",
+              "name", "url", "title", "subject"):
+        v = args.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
 class _AgentSession:
     def __init__(self):
         self.q: queue.Queue = queue.Queue()
         self._gate = threading.Event()
         self._decision = False
-        self.allowed: set = set()      # scopes the user said "toujours" for THIS session
+        self.allowed: set = set()      # remembered "toujours" keys for THIS session (scope OR scope+path)
         self.auto_allow = False        # "mode confiance": auto-allow every non-Tier-3 scope
-        self._pending_scope = None
+        self._pending_key = None
 
     def emit(self, event: dict):
         self.q.put(event)
 
     def ask_permission(self, tool: str, args: dict, scope: str) -> bool:
         """Emit a gate event, then block until the user resumes (via /agent_resume).
-        Allow silently if the scope was remembered ("toujours") OR if "mode confiance" is on —
-        EXCEPT Tier-3 scopes (send/delete/screen), which ALWAYS require an explicit confirm."""
+        Allow silently if THIS scope+path was remembered ("toujours") OR if "mode confiance" is on —
+        EXCEPT Tier-3 scopes (cloud egress, send/delete/screen…), which ALWAYS confirm explicitly.
+        Remembering is keyed by scope+PATH so authorising one file never opens every file."""
         from aneforge.agent import TIER3_SCOPES
-        if scope and scope not in TIER3_SCOPES and (scope in self.allowed or self.auto_allow):
-            return True
-        self._pending_scope = scope
+        arg = _primary_arg(args)
+        path_key = f"{scope}\x1f{arg}" if arg else scope
+        if scope and scope not in TIER3_SCOPES:
+            if self.auto_allow or scope in self.allowed or path_key in self.allowed:
+                return True
+        self._pending_key = (scope, path_key)
         self.emit({"type": "gate", "tool": tool, "args": args, "scope": scope})
         self._gate.clear()
         if not self._gate.wait(timeout=300):   # 5 min to decide, else deny
@@ -211,8 +228,10 @@ class _AgentSession:
 
     def resume(self, allow: bool, remember: bool = False):
         from aneforge.agent import TIER3_SCOPES
-        if allow and remember and self._pending_scope and self._pending_scope not in TIER3_SCOPES:
-            self.allowed.add(self._pending_scope)   # don't ask again this session
+        if allow and remember and self._pending_key:
+            scope, path_key = self._pending_key
+            if scope and scope not in TIER3_SCOPES:
+                self.allowed.add(path_key)   # remember THIS path only, not the whole scope
         self._decision = allow
         self._gate.set()
 
