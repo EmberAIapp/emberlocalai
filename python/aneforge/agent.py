@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -35,6 +36,19 @@ def _run(cmd, timeout=15):
 
 def _osa(script, timeout=20):
     return _run(["osascript", "-e", script], timeout)
+
+
+def _launch(app, settle=1.4):
+    """Launch/focus an app and wait briefly. osascript→app fails with -600 if the app isn't
+    running, so read/control tools call this first. Returns (ok, message)."""
+    try:
+        r = subprocess.run(["open", "-a", app], capture_output=True, text=True, timeout=12)
+    except Exception as e:
+        return False, f"Erreur : {e}"
+    if r.returncode != 0:
+        return False, f"Impossible d'ouvrir « {app} » : {(r.stderr or '').strip()[:140] or 'app introuvable'}"
+    time.sleep(settle)
+    return True, f"App ouverte : {app}"
 
 
 def _read(p: Path):
@@ -165,19 +179,25 @@ def _exec(name, args, ia):
         app = (args.get("name") or "").strip()
         if not app:
             return "Nom d'app manquant."
-        _run(["open", "-a", app], 10)
-        return f"App ouverte : {app}"
+        ok, msg = _launch(app, settle=0.2)
+        return msg
     if name == "open_url":
         url = (args.get("url") or "").strip()
         scheme = urllib.parse.urlparse(url).scheme.lower()
         if scheme not in ("http", "https", "mailto"):
             return f"Lien refusé (schéma « {scheme or '∅'} » ; http/https/mailto uniquement)."
-        _run(["open", url], 10)
-        return f"Ouvert : {url}"
+        try:
+            r = subprocess.run(["open", url], capture_output=True, text=True, timeout=10)
+        except Exception as e:
+            return f"Erreur : {e}"
+        return f"Ouvert : {url}" if r.returncode == 0 else f"Lien impossible : {(r.stderr or '').strip()[:140]}"
     if name == "reveal_in_finder":
         p = str(Path(args.get("path", "")).expanduser())
-        _run(["open", "-R", p], 10)
-        return f"Révélé dans le Finder : {p}"
+        try:
+            r = subprocess.run(["open", "-R", p], capture_output=True, text=True, timeout=10)
+        except Exception as e:
+            return f"Erreur : {e}"
+        return f"Révélé dans le Finder : {p}" if r.returncode == 0 else f"Introuvable : {p}"
     if name == "spotlight_search":
         q = (args.get("query") or "").strip()
         if not q:
@@ -199,14 +219,23 @@ def _exec(name, args, ia):
         _osa(f'display notification "{b}" with title "{t}"', 8)
         return "Notification affichée."
     if name == "read_notes":
+        ok, msg = _launch("Notes")
+        if not ok:
+            return msg
         out = _osa('tell application "Notes" to get name of notes', 25)
         items = [x.strip() for x in out.split(",") if x.strip()][:30]
         return "Notes : " + " · ".join(items) if items else "Aucune note."
     if name == "read_reminders":
+        ok, msg = _launch("Reminders")
+        if not ok:
+            return msg
         out = _osa('tell application "Reminders" to get name of (reminders whose completed is false)', 25)
         items = [x.strip() for x in out.split(",") if x.strip()][:40]
         return "Rappels : " + " · ".join(items) if items else "Aucun rappel ouvert."
     if name == "read_calendar":
+        ok, msg = _launch("Calendar")
+        if not ok:
+            return msg
         script = ('set today to current date\nset startOfDay to today - (time of today)\n'
                   'set endOfDay to startOfDay + 86400\n'
                   'tell application "Calendar" to set ev to summary of '
