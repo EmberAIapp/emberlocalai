@@ -157,7 +157,8 @@ actor Engine {
                         if type == "session" { e.detail = (o["id"] as? String) ?? "" }
                         if let args = o["args"] as? [String: Any] {
                             e.detail = (args["filename"] as? String) ?? (args["query"] as? String)
-                                     ?? (args["path"] as? String) ?? e.detail
+                                     ?? (args["path"] as? String) ?? (args["name"] as? String)
+                                     ?? (args["url"] as? String) ?? (args["pattern"] as? String) ?? e.detail
                         }
                         continuation.yield(e)
                     }

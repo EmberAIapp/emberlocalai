@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -20,6 +22,19 @@ from aneforge.memory import store_for_model
 
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 DRAFTS = Path.home() / ".aneforge" / "drafts"
+
+
+def _run(cmd, timeout=15):
+    """Run a local command, return its trimmed output (or a short error). Local only."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return (r.stdout or "").strip() or (r.stderr or "").strip() or "(ok)"
+    except Exception as e:
+        return f"Erreur : {e}"
+
+
+def _osa(script, timeout=20):
+    return _run(["osascript", "-e", script], timeout)
 
 
 def _read(p: Path):
@@ -70,11 +85,52 @@ TOOLS = [
      "description": "Write a note/draft into the user's Ember drafts folder.",
      "parameters": {"type": "object", "properties": {"filename": {"type": "string"},
                     "content": {"type": "string"}}, "required": ["filename", "content"]}}},
+    # --- P1 ecosystem (apps + computer): safe reads & launch, all LOCAL execution, gated ---
+    {"type": "function", "function": {"name": "open_app",
+     "description": "Open / focus a macOS app by name (e.g. Safari, Mail, Notes, Music).",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
+    {"type": "function", "function": {"name": "open_url",
+     "description": "Open a web/mail link (http, https or mailto only).",
+     "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}}},
+    {"type": "function", "function": {"name": "reveal_in_finder",
+     "description": "Reveal a file or folder in the Finder.",
+     "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "spotlight_search",
+     "description": "Find files on the Mac by name or content (Spotlight).",
+     "parameters": {"type": "object", "properties": {"query": {"type": "string"},
+                    "by_name": {"type": "boolean"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "search_text",
+     "description": "Search for a text pattern inside files of a folder.",
+     "parameters": {"type": "object", "properties": {"pattern": {"type": "string"},
+                    "path": {"type": "string"}}, "required": ["pattern", "path"]}}},
+    {"type": "function", "function": {"name": "read_clipboard",
+     "description": "Read the current clipboard text.",
+     "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "notify",
+     "description": "Show a macOS notification to the user.",
+     "parameters": {"type": "object", "properties": {"title": {"type": "string"},
+                    "body": {"type": "string"}}, "required": ["body"]}}},
+    {"type": "function", "function": {"name": "read_notes",
+     "description": "List the user's Notes (titles).",
+     "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "read_reminders",
+     "description": "List the user's open reminders.",
+     "parameters": {"type": "object", "properties": {}}}},
+    {"type": "function", "function": {"name": "read_calendar",
+     "description": "List today's calendar events.",
+     "parameters": {"type": "object", "properties": {}}}},
     {"type": "function", "function": {"name": "finish",
      "description": "Finish the task with a short summary for the user.",
      "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}}},
 ]
-SENSITIVE = {"list_dir": "Fichiers", "read_file": "Fichiers", "write_note": "Fichiers"}
+# scope = human label shown in the permission gate. read_clipboard/notify are intentionally
+# UNGATED (harmless). Everything that touches files/apps/personal data asks permission.
+SENSITIVE = {
+    "list_dir": "Fichiers", "read_file": "Fichiers", "write_note": "Fichiers",
+    "open_app": "Apps", "open_url": "Apps", "reveal_in_finder": "Fichiers",
+    "spotlight_search": "Fichiers", "search_text": "Fichiers",
+    "read_notes": "Notes", "read_reminders": "Rappels", "read_calendar": "Agenda",
+}
 
 
 def _exec(name, args, ia):
@@ -103,6 +159,62 @@ def _exec(name, args, ia):
         path = DRAFTS / fn
         path.write_text(args.get("content", ""))
         return f"Note écrite : {path}"
+
+    # --- P1 ecosystem tools (all execute LOCALLY via subprocess/osascript) ---
+    if name == "open_app":
+        app = (args.get("name") or "").strip()
+        if not app:
+            return "Nom d'app manquant."
+        _run(["open", "-a", app], 10)
+        return f"App ouverte : {app}"
+    if name == "open_url":
+        url = (args.get("url") or "").strip()
+        scheme = urllib.parse.urlparse(url).scheme.lower()
+        if scheme not in ("http", "https", "mailto"):
+            return f"Lien refusé (schéma « {scheme or '∅'} » ; http/https/mailto uniquement)."
+        _run(["open", url], 10)
+        return f"Ouvert : {url}"
+    if name == "reveal_in_finder":
+        p = str(Path(args.get("path", "")).expanduser())
+        _run(["open", "-R", p], 10)
+        return f"Révélé dans le Finder : {p}"
+    if name == "spotlight_search":
+        q = (args.get("query") or "").strip()
+        if not q:
+            return "Requête vide."
+        out = _run(["mdfind", "-name", q] if args.get("by_name") else ["mdfind", q], 15)
+        lines = [l for l in out.splitlines() if l and "mdfind[" not in l and "UserQueryParser" not in l][:40]
+        return "\n".join(lines) if lines else "Aucun résultat."
+    if name == "search_text":
+        pat = args.get("pattern", "")
+        p = str(Path(args.get("path", "")).expanduser())
+        out = _run(["grep", "-rIn", "--", pat, p], 20)
+        lines = out.splitlines()[:50]
+        return "\n".join(lines) if lines and "Erreur" not in out else (out or "Aucune correspondance.")
+    if name == "read_clipboard":
+        return _run(["pbpaste"], 5)
+    if name == "notify":
+        t = (args.get("title") or "Ember").replace('"', "'")
+        b = (args.get("body") or "").replace('"', "'")
+        _osa(f'display notification "{b}" with title "{t}"', 8)
+        return "Notification affichée."
+    if name == "read_notes":
+        out = _osa('tell application "Notes" to get name of notes', 25)
+        items = [x.strip() for x in out.split(",") if x.strip()][:30]
+        return "Notes : " + " · ".join(items) if items else "Aucune note."
+    if name == "read_reminders":
+        out = _osa('tell application "Reminders" to get name of (reminders whose completed is false)', 25)
+        items = [x.strip() for x in out.split(",") if x.strip()][:40]
+        return "Rappels : " + " · ".join(items) if items else "Aucun rappel ouvert."
+    if name == "read_calendar":
+        script = ('set today to current date\nset startOfDay to today - (time of today)\n'
+                  'set endOfDay to startOfDay + 86400\n'
+                  'tell application "Calendar" to set ev to summary of '
+                  '(every event of every calendar whose start date ≥ startOfDay and start date < endOfDay)\n'
+                  'return ev')
+        out = _osa(script, 30)
+        items = [x.strip() for x in out.split(",") if x.strip()][:30]
+        return "Aujourd'hui : " + " · ".join(items) if items else "Rien au calendrier aujourd'hui."
     return "Outil inconnu."
 
 

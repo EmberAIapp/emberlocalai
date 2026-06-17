@@ -353,18 +353,37 @@ private struct OverviewCard: View {
                 }
             }
             Spacer(minLength: 0)
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "cloud").font(.system(size: 11)).foregroundStyle(Color(hexv: 0xc9a98f))
+                // Honnêteté §2.4 : l'agent de travail tourne sur DeepSeek — le plan ET les
+                // résultats d'outils y transitent (≠ 100% local, contrairement à la conversation).
+                Text("Travail piloté par DeepSeek (cloud) · le plan et les résultats y transitent")
+                    .font(.system(size: 10)).foregroundStyle(Color(hexv: 0xc9a98f))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(18).frame(maxHeight: 420, alignment: .top).glassCard(corner: 20)
+        .padding(18).frame(maxHeight: 440, alignment: .top).glassCard(corner: 20)
     }
 
     static func label(_ tool: String) -> String {
         switch tool {
-        case "list_facts":    return "Mémoire"
-        case "search_memory": return "Recherche mémoire"
-        case "list_dir":      return "Dossier"
-        case "read_file":     return "Lecture fichier"
-        case "write_note":    return "Note / brouillon"
-        default:              return tool.isEmpty ? "Étape" : tool
+        case "list_facts":       return "Mémoire"
+        case "search_memory":    return "Recherche mémoire"
+        case "list_dir":         return "Dossier"
+        case "read_file":        return "Lecture fichier"
+        case "write_note":       return "Note / brouillon"
+        case "open_app":         return "App"
+        case "open_url":         return "Lien"
+        case "reveal_in_finder": return "Finder"
+        case "spotlight_search": return "Recherche fichiers"
+        case "search_text":      return "Recherche texte"
+        case "read_clipboard":   return "Presse-papiers"
+        case "notify":           return "Notification"
+        case "read_notes":       return "Notes"
+        case "read_reminders":   return "Rappels"
+        case "read_calendar":    return "Agenda"
+        default:                 return tool.isEmpty ? "Étape" : tool
         }
     }
 }
@@ -393,19 +412,38 @@ private struct HerEventRow: View {
     private var toolIcon: String {
         switch event.tool {
         case "list_facts", "search_memory": return "brain"
-        case "read_file", "list_dir":        return "folder"
+        case "read_file", "list_dir", "reveal_in_finder": return "folder"
         case "write_note":                   return "square.and.pencil"
+        case "open_app":                     return "app.badge"
+        case "open_url":                     return "safari"
+        case "spotlight_search":             return "magnifyingglass"
+        case "search_text":                  return "text.magnifyingglass"
+        case "read_clipboard":               return "doc.on.clipboard"
+        case "notify":                       return "bell"
+        case "read_notes":                   return "note.text"
+        case "read_reminders":               return "checklist"
+        case "read_calendar":                return "calendar"
         default:                             return "gearshape"
         }
     }
     private var toolTitle: String {
         switch event.tool {
-        case "list_facts":     return "Consulte la mémoire"
-        case "search_memory":  return "Cherche dans la mémoire"
-        case "list_dir":       return "Liste un dossier"
-        case "read_file":      return "Lit un fichier"
-        case "write_note":     return "Écrit une note"
-        default:               return event.tool
+        case "list_facts":      return "Consulte la mémoire"
+        case "search_memory":   return "Cherche dans la mémoire"
+        case "list_dir":        return "Liste un dossier"
+        case "read_file":       return "Lit un fichier"
+        case "write_note":      return "Écrit une note"
+        case "open_app":        return "Ouvre une app"
+        case "open_url":        return "Ouvre un lien"
+        case "reveal_in_finder": return "Montre dans le Finder"
+        case "spotlight_search": return "Cherche des fichiers"
+        case "search_text":     return "Cherche du texte"
+        case "read_clipboard":  return "Lit le presse-papiers"
+        case "notify":          return "Notifie"
+        case "read_notes":      return "Lit tes notes"
+        case "read_reminders":  return "Lit tes rappels"
+        case "read_calendar":   return "Lit ton agenda"
+        default:                return event.tool
         }
     }
 
@@ -426,10 +464,18 @@ private struct HerEventRow: View {
 
     private var gateDesc: String {
         switch event.tool {
-        case "write_note": return "Écrire « \(event.detail) » dans tes brouillons"
-        case "read_file":  return "Lire « \(event.detail) »"
-        case "list_dir":   return "Lister « \(event.detail) »"
-        default:           return event.tool
+        case "write_note":       return "Écrire « \(event.detail) » dans tes brouillons"
+        case "read_file":        return "Lire « \(event.detail) »"
+        case "list_dir":         return "Lister « \(event.detail) »"
+        case "open_app":         return "Ouvrir l'app « \(event.detail) »"
+        case "open_url":         return "Ouvrir le lien « \(event.detail) »"
+        case "reveal_in_finder": return "Montrer « \(event.detail) » dans le Finder"
+        case "spotlight_search": return "Chercher « \(event.detail) » sur le Mac"
+        case "search_text":      return "Chercher du texte dans « \(event.detail) »"
+        case "read_notes":       return "Lire tes notes"
+        case "read_reminders":   return "Lire tes rappels"
+        case "read_calendar":    return "Lire ton agenda du jour"
+        default:                 return event.tool
         }
     }
 
