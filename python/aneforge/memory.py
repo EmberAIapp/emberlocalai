@@ -7,9 +7,11 @@ explicit, inspectable, editable, deletable store. This is what lets Ember say
 
 Design choices:
 - One SQLite DB per personal model (`~/.aneforge/models/{name}/memory.db`).
-- Fact extraction is heuristic (pattern-based), not LLM-based: a 135M local model
-  is too weak to extract facts reliably, and heuristics are transparent and fast.
-  Users can also state facts explicitly ("remember that ...").
+- Fact extraction in the EMBER APP is done by the MODEL (`ember_daemon._extract_facts`),
+  so it works in EVERY language (§2.7) and is grounded against the source to block the
+  small model's hallucinations. The regex `_PATTERNS` / `extract_and_store` below are
+  LEGACY — FR/EN only, used solely by the CLI (`chat.py`), NOT on the app path.
+- Categories are assigned by `classify_kind` (multilingual semantic prototypes, no regex).
 - 100% local. Nothing leaves the machine.
 """
 
@@ -35,6 +37,8 @@ class Fact:
         return f"[{self.id}] ({self.kind}) {self.text}"
 
 
+# LEGACY (CLI-only, FR/EN). The Ember app extracts facts with the MODEL (§2.7) — see the
+# module docstring. Kept so the standalone CLI (`chat.py`) still works; do not extend it.
 # Heuristic extraction patterns. Each maps a regex (case-insensitive) over a user
 # message to a (kind, template) pair. {0} is the first captured group.
 # NOTE: patterns run with re.I, under which [A-Z] would also match lowercase.
@@ -251,6 +255,55 @@ def _semantic_scores(query: str, texts: list[str]):
         return [float(q @ r) for r in rest]
     except Exception:
         return None
+
+
+# --- Multilingual fact categorisation (§4.D « catégories ») -------------------
+# LANGUAGE-NEUTRAL by design (§2.7): a fact is compared to a few prototype phrases
+# per category with the multilingual embedder — NO regex, NO per-language rules.
+# Each category lists prototypes in several languages; we take the best match.
+_KIND_PROTOTYPES: dict[str, list[str]] = {
+    "travail":  ["métier travail profession emploi job work occupation carrière",
+                 "je suis infirmière médecin ingénieur professeur développeur",
+                 "Beruf Arbeit", "trabajo profesión empleo", "工作 职业"],
+    "projet":   ["projet objectif but project goal",
+                 "je travaille sur je construis je crée un",
+                 "Projekt Ziel", "proyecto objetivo", "项目 目标"],
+    "goûts":    ["aime adore préfère passion loisir hobby like enjoy favourite taste",
+                 "musique guitare sport randonnée lecture cuisine voyage jeux films",
+                 "Hobby mag gern", "gusta afición pasatiempo", "爱好 喜欢"],
+    "lieu":     ["habite vit ville pays région adresse lives in city country location",
+                 "à Paris Toulouse Lyon en France au Canada",
+                 "wohnt Stadt Land", "vive ciudad país", "住在 城市 国家"],
+    "relation": ["mon ami ma famille mon mari ma femme mon enfant mon collègue",
+                 "mon chien mon chat animal de compagnie pet",
+                 "meine Familie mein Hund", "mi familia mi perro mi gato", "我的家人 我的宠物"],
+    "perso":    ["s'appelle il s'appelle elle s'appelle", "je m'appelle mon prénom mon nom",
+                 "se llama me llamo mi nombre es", "Ich heiße mein Name",
+                 "chamo-me o meu nome é", "is named is called my name",
+                 "名叫 名字", "âge ans santé allergie identité personnelle"],
+}
+
+
+def classify_kind(text: str, threshold: float = 0.18) -> str:
+    """Best-matching category for a fact, or 'misc' if none is confident enough.
+    Multilingual (semantic), so it works in any language (§2.7)."""
+    text = (text or "").strip()
+    if not text:
+        return "misc"
+    cats = list(_KIND_PROTOTYPES.keys())
+    protos, owner = [], []
+    for ci, c in enumerate(cats):
+        for p in _KIND_PROTOTYPES[c]:
+            protos.append(p); owner.append(ci)
+    sims = _semantic_scores(text, protos)
+    if sims is None:
+        return "misc"
+    best = [-1.0] * len(cats)
+    for s, ci in zip(sims, owner):
+        if s > best[ci]:
+            best[ci] = s
+    bi = max(range(len(cats)), key=lambda i: best[i])
+    return cats[bi] if best[bi] >= threshold else "misc"
 
 
 def store_for_model(model_name: str, models_dir: Optional[Path] = None) -> FactStore:

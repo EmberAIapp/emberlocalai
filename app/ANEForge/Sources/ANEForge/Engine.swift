@@ -21,6 +21,11 @@ struct Fact: Identifiable, Codable, Hashable {
     var kind: String
     var text: String
     var source: String
+    var createdAt: String?
+    enum CodingKeys: String, CodingKey {
+        case id, kind, text, source
+        case createdAt = "created_at"
+    }
 }
 
 struct AISettings: Codable {

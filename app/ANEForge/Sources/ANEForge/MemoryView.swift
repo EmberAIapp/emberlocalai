@@ -1,5 +1,40 @@
 import SwiftUI
 
+// MARK: - Fact metadata helpers (§4.D : catégories, sources, timeline)
+
+/// "il y a 5 min", "hier"… from the stored ISO date (locale-aware). Empty if unparseable.
+func factRelativeDate(_ iso: String?) -> String {
+    guard let iso, !iso.isEmpty else { return "" }
+    let p1 = ISO8601DateFormatter(); p1.formatOptions = [.withInternetDateTime]
+    let p2 = ISO8601DateFormatter(); p2.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    guard let d = p1.date(from: iso) ?? p2.date(from: iso) else { return "" }
+    let f = RelativeDateTimeFormatter(); f.unitsStyle = .full; f.locale = .current
+    return f.localizedString(for: d, relativeTo: Date())
+}
+
+/// Human category label for a fact's kind (works for any classify_kind output).
+func factCategoryLabel(_ kind: String) -> String {
+    let k = kind.lowercased()
+    if k.contains("trav") || k.contains("job") || k.contains("work") || k.contains("méti") || k.contains("meti") { return "TRAVAIL" }
+    if k.contains("proj") || k.contains("goal") || k.contains("but") { return "PROJET" }
+    if k.contains("goût") || k.contains("gout") || k.contains("like") || k.contains("aime") || k.contains("taste") { return "GOÛTS" }
+    if k.contains("lieu") || k.contains("loc") { return "LIEU" }
+    if k.contains("rel") || k.contains("ami") || k.contains("famille") { return "PROCHES" }
+    if k.contains("perso") || k.contains("name") || k.contains("nom") { return "PERSO" }
+    return "DIVERS"
+}
+
+/// Where a fact came from → (label, SF Symbol). nil for unknown sources.
+func factSource(_ source: String) -> (text: String, icon: String)? {
+    switch source {
+    case "explicit": return ("ajouté par toi", "pencil")
+    case "model":    return ("appris en discutant", "bubble.left.fill")
+    case "idle":     return ("noté en veille", "moon.fill")
+    case "file":     return ("depuis un fichier", "doc.fill")
+    default:         return nil
+    }
+}
+
 struct MemoryView: View {
     @EnvironmentObject var state: AppState
     @State private var rowWidth: CGFloat = 0
@@ -166,33 +201,42 @@ private struct MemoryFactRow: View {
     private var pillColors: (fg: Color, bg: Color) {
         let k = fact.kind.lowercased()
         if k.contains("proj") || k.contains("goal") || k.contains("but") {
-            return (Color(hexv: 0xa9c4f0), Color(hexv: 0x78aaff).opacity(0.14))   // bleu
+            return (Color(hexv: 0xa9c4f0), Color(hexv: 0x78aaff).opacity(0.14))   // bleu — projet
         }
         if k.contains("goût") || k.contains("gout") || k.contains("like") || k.contains("aime") || k.contains("taste") {
-            return (Color(hexv: 0xc9aef0), Color(hexv: 0xb482ff).opacity(0.14))   // violet
+            return (Color(hexv: 0xc9aef0), Color(hexv: 0xb482ff).opacity(0.14))   // violet — goûts
         }
-        if k.contains("trav") || k.contains("job") || k.contains("work") || k.contains("métier") || k.contains("metier") {
-            return (Color(hexv: 0x9fd9ad), Color(hexv: 0x5fd07a).opacity(0.12))   // vert
+        if k.contains("trav") || k.contains("job") || k.contains("work") || k.contains("méti") || k.contains("meti") {
+            return (Color(hexv: 0x9fd9ad), Color(hexv: 0x5fd07a).opacity(0.12))   // vert — travail
         }
-        return (Color(hexv: 0xe8b48f), Color(hexv: 0xff965a).opacity(0.14))       // orange (perso/défaut)
+        if k.contains("lieu") || k.contains("loc") {
+            return (Color(hexv: 0x8fd9d0), Color(hexv: 0x5fd0c0).opacity(0.13))   // teal — lieu
+        }
+        if k.contains("rel") || k.contains("ami") || k.contains("famille") {
+            return (Color(hexv: 0xf0a9c4), Color(hexv: 0xff78aa).opacity(0.13))   // rose — proches
+        }
+        return (Color(hexv: 0xe8b48f), Color(hexv: 0xff965a).opacity(0.14))       // orange — perso/divers
     }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {                 // gap:12px
             // category pill — 10/700, tracking .4, padding 4×8, radius 7, margin-top:1px
             TagPill(
-                text: fact.kind.uppercased(),
+                text: factCategoryLabel(fact.kind),
                 fg: pillColors.fg,
                 bg: pillColors.bg,
                 radius: 7, fontSize: 10, tracking: 0.4
             )
             .padding(.top, 1)
-            Text(fact.text)                                    // 14px / line-height 1.45 / #e7d8cb
-                .font(.system(size: 14))
-                .foregroundStyle(Color(hexv: 0xe7d8cb))
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(fact.text)                                // 14px / line-height 1.45 / #e7d8cb
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color(hexv: 0xe7d8cb))
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                metaLine                                       // source · quand (§4.D)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             forgetButton
         }
         .padding(.vertical, 13)                                // padding:13px 15px
@@ -207,6 +251,28 @@ private struct MemoryFactRow: View {
                                  : Color.white.opacity(0.06), lineWidth: 1) // hover border
         )
         .onHover { rowHover = $0 }
+    }
+
+    // source · quand — small muted subtitle under the fact (sources + timeline, §4.D)
+    @ViewBuilder private var metaLine: some View {
+        let src = factSource(fact.source)
+        let when = factRelativeDate(fact.createdAt)
+        if src != nil || !when.isEmpty {
+            HStack(spacing: 5) {
+                if let src {
+                    Image(systemName: src.icon).font(.system(size: 9))
+                    Text(src.text)
+                }
+                if src != nil && !when.isEmpty {
+                    Text("·")
+                }
+                if !when.isEmpty {
+                    Text(when)
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(Color(hexv: 0x8a7d75))
+        }
     }
 
     // 24×24, radius 7, color #7c6f67 / font 15 ; hover bg rgba(255,90,70,0.15) color #ff8a7a
@@ -352,8 +418,15 @@ private struct MemoryRecent: View {
                             }
                         }
                         .frame(width: 9)
-                        Text(f.text).font(.system(size: 13.5)).foregroundStyle(Color(hexv: 0xe7d8cb))
-                            .lineSpacing(2).fixedSize(horizontal: false, vertical: true).padding(.bottom, 14)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(f.text).font(.system(size: 13.5)).foregroundStyle(Color(hexv: 0xe7d8cb))
+                                .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                            let when = factRelativeDate(f.createdAt)
+                            if !when.isEmpty {
+                                Text(when).font(.system(size: 11)).foregroundStyle(Color(hexv: 0x8a7d75))
+                            }
+                        }
+                        .padding(.bottom, 14)
                         Spacer(minLength: 0)
                     }
                 }

@@ -29,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 from aneforge.personal import PersonalModel, MODELS_DIR
-from aneforge.memory import store_for_model
+from aneforge.memory import store_for_model, classify_kind
 from aneforge import tts
 
 _QWORDS = ("comment", "quel", "quelle", "qui", "où", "ou ", "quand", "what",
@@ -293,7 +293,7 @@ class Engine:
             try:
                 for f in self._extract_facts(msg):
                     if _is_real_fact(f) and _grounded(f, msg) and not _is_near_dup(f, existing) \
-                       and store.add(f, kind="misc", source="idle"):
+                       and store.add(f, kind=classify_kind(f), source="idle"):
                         existing.append(f)
             except Exception:
                 continue
@@ -409,7 +409,7 @@ class Engine:
             # model's embellishments; _is_near_dup drops paraphrases.)
             if not _is_real_fact(f) or not _grounded(f, message) or _is_near_dup(f, existing):
                 continue
-            if store.add(f, kind="misc", source="model"):
+            if store.add(f, kind=classify_kind(f), source="model"):
                 existing.append(f)
 
     def _extract_facts(self, message: str) -> list[str]:
@@ -445,7 +445,7 @@ class Engine:
                     # of something we already know.
                     if not _is_real_fact(f) or not _grounded(f, chunk) or _is_near_dup(f, existing):
                         continue
-                    if store.add(f, kind="misc", source="file"):
+                    if store.add(f, kind=classify_kind(f), source="file"):
                         existing.append(f); learned += 1
             except Exception:
                 continue
@@ -507,7 +507,8 @@ def make_handler(engine: Engine):
             if u.path == "/memory":
                 name = (parse_qs(u.query).get("name") or [""])[0]
                 facts = store_for_model(name).all() if (MODELS_DIR / name).exists() else []
-                return self._send(200, [{"id": f.id, "kind": f.kind, "text": f.text, "source": f.source} for f in facts])
+                return self._send(200, [{"id": f.id, "kind": f.kind, "text": f.text,
+                                         "source": f.source, "created_at": f.created_at} for f in facts])
             if u.path == "/settings":
                 name = (parse_qs(u.query).get("name") or [""])[0]
                 return self._send(200, _load_settings(name))
@@ -656,7 +657,8 @@ def make_handler(engine: Engine):
                         return self._send(404, {"error": "IA introuvable"})
                     if not text:
                         return self._send(400, {"error": "texte vide"})
-                    f = store_for_model(name).add(text, kind=(b.get("kind") or "misc"), source="explicit")
+                    f = store_for_model(name).add(text, kind=(b.get("kind") or classify_kind(text)),
+                                                  source="explicit")
                     return self._send(200, {"ok": True, "added": bool(f), "id": (f.id if f else None)})
                 if u.path == "/search":
                     # Mémoire search box — hybrid keyword + multilingual-semantic ranking.
@@ -665,7 +667,7 @@ def make_handler(engine: Engine):
                         return self._send(200, [])
                     facts = store_for_model(name).search(q)
                     return self._send(200, [{"id": f.id, "kind": f.kind, "text": f.text,
-                                             "source": f.source} for f in facts])
+                                             "source": f.source, "created_at": f.created_at} for f in facts])
                 if u.path == "/forget":
                     s = store_for_model(b["name"])
                     removed = s.clear() if b.get("all") else (1 if s.delete(int(b["id"])) else 0)
