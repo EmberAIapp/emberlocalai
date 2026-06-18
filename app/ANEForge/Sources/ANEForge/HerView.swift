@@ -246,6 +246,28 @@ private struct ConversationColumn: View {
         Task { await state.generateDocument(t) }
     }
 
+    // Une création passée, restaurée à sa place dans le fil (carte ouvrable).
+    private func creationRow(_ turn: HerTurn) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("EMBER · GÉNÉRÉ").font(.system(size: 9.5, weight: .medium)).tracking(0.8)
+                .foregroundStyle(Color(hexv: 0x8a9b8e))
+            HStack(spacing: 10) {
+                Image(systemName: "doc.text.fill").font(.system(size: 14)).foregroundStyle(Color(hexv: 0x9fd9ad))
+                Text(turn.text).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xecd9c9)).lineLimit(1)
+                Spacer(minLength: 0)
+                if let p = turn.path {
+                    Button { state.openPath(p) } label: { genPill("Ouvrir") }.buttonStyle(.plain)
+                    Button { state.revealPath(p) } label: { genPill("Révéler") }.buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 9).padding(.horizontal, 13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 13).fill(Color(hexv: 0x5fd07a).opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color(hexv: 0x5fd07a).opacity(0.22), lineWidth: 1))
+        }
+        .padding(.top, 2)
+    }
+
     // Le fil unique : un seul flux chronologique (pas de séparateur « — L'ÉCHANGE — »).
     @ViewBuilder private var thread: some View {
         if !active {
@@ -259,10 +281,11 @@ private struct ConversationColumn: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 9) {
                         ForEach(state.herConversation) { turn in
-                            bubble(turn)
+                            if turn.kind == .creation { creationRow(turn) }   // document restauré, dans le fil
+                            else { bubble(turn) }
                             if turn.working { WorkInline(expanded: $workExpanded) }
                         }
-                        generatedCard          // l'élément généré, dans le fil
+                        generatedCard          // l'élément en cours de génération (session vivante)
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(.horizontal, 2)

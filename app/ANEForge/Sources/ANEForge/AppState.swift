@@ -16,14 +16,19 @@ struct AgentEvent: Identifiable, Hashable {
 /// One turn of the Mode Her conversation (the "flux conversation", §4.E).
 struct HerTurn: Identifiable, Equatable {
     enum Role { case user, ember }
+    enum Kind { case message, creation }   // creation = carte ouvrable, restaurée dans le fil
     let id: UUID
     let role: Role
     var text: String
     var working: Bool           // an "Ember travaille…" turn whose detail is the work stream
+    var kind: Kind
+    var path: String?           // creation : chemin du fichier (Ouvrir/Révéler dans le fil)
     // id par défaut neuf, mais on peut le forcer pour qu'un tour restauré garde l'id de son
     // entrée d'historique (→ « Revenir » sait re-scroller jusqu'à cette étape).
-    init(id: UUID = UUID(), role: Role, text: String, working: Bool = false) {
+    init(id: UUID = UUID(), role: Role, text: String, working: Bool = false,
+         kind: Kind = .message, path: String? = nil) {
         self.id = id; self.role = role; self.text = text; self.working = working
+        self.kind = kind; self.path = path
     }
 }
 
@@ -220,10 +225,16 @@ final class AppState: ObservableObject {
     func loadHistory(_ name: String) async {
         let items = await historyStore.load(name)
         history = items
-        // On ne ré-injecte dans le fil vivant que les messages (les 60 derniers) — le travail et
-        // les créations restent consultables dans la vue Historique (et les fichiers sur le disque).
-        let msgs = items.filter { $0.kind == .you || $0.kind == .ember }.suffix(60)
-        herConversation = msgs.map { HerTurn(id: $0.id, role: $0.kind == .you ? .user : .ember, text: $0.text) }
+        // On restaure TOUT le fil (les 80 dernières étapes) dans l'ordre : messages, résultats de
+        // travail ET cartes de création — pour retrouver le fil tel qu'il était.
+        herConversation = items.suffix(80).map { it in
+            switch it.kind {
+            case .you:      return HerTurn(id: it.id, role: .user,  text: it.text)
+            case .ember:    return HerTurn(id: it.id, role: .ember, text: it.text)
+            case .task:     return HerTurn(id: it.id, role: .ember, text: it.detail ?? it.text)
+            case .creation: return HerTurn(id: it.id, role: .ember, text: it.text, kind: .creation, path: it.path)
+            }
+        }
     }
 
     func openPath(_ p: String) { NSWorkspace.shared.open(URL(fileURLWithPath: p)) }

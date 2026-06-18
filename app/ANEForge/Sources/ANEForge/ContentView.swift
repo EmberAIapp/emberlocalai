@@ -139,12 +139,12 @@ struct TopBar: View {
         return Button {
             state.switcherOpen.toggle()
         } label: {
-            HStack(spacing: 10) {
-                // switcherBrand orb 18 — LIVE (reflects the real state, §3 "partout")
-                HStack(spacing: 9) {
-                    EmberOrb(mode: state.orbMode, size: 18).frame(width: 18, height: 18)
+            HStack(spacing: 7) {
+                // switcherBrand orb — plus discret (LIVE, reflète l'état réel §3)
+                HStack(spacing: 7) {
+                    EmberOrb(mode: state.orbMode, size: 14).frame(width: 14, height: 14)
                     Text(name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .tracking(0.2)
                         .foregroundStyle(Color(hexv: 0xf0ddcf))
                         .lineLimit(1).truncationMode(.tail)
@@ -154,19 +154,19 @@ struct TopBar: View {
                 // fact-count : texte plat « · N faits » (la pastille orange « séparait » → supprimée)
                 if state.selected != nil {
                     Text("· \(factCount) fait\(factCount > 1 ? "s" : "")")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10.5))
                         .foregroundStyle(Color(hexv: 0x9a8073))
                         .shadow(color: kBarGlyphShadow, radius: 5)
                 }
                 // chevron ▾
                 Text("▾")
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundStyle(Color(hexv: 0x8a7d75))
                     .shadow(color: kBarGlyphShadow, radius: 5)
-                    .padding(.leading, 2)
+                    .padding(.leading, 1)
             }
-            .padding(.leading, 14).padding(.trailing, 8)
-            .padding(.vertical, 5)
+            .padding(.leading, 10).padding(.trailing, 7)
+            .padding(.vertical, 4)
             .ghostHover()                                                // plat ; fond seulement au survol
         }
         .buttonStyle(.plain)

@@ -11,16 +11,41 @@ struct HistoryView: View {
         var id: String { rawValue }
     }
     @State private var lens: Lens = .tout
+    @State private var query = ""
 
     private var items: [TimelineItem] {
-        state.history.filter { item in
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return state.history.filter { item in
+            let lensOK: Bool
             switch lens {
-            case .tout:         return true
-            case .conversation: return item.kind == .you || item.kind == .ember
-            case .travail:      return item.kind == .task
-            case .creations:    return item.kind == .creation
+            case .tout:         lensOK = true
+            case .conversation: lensOK = item.kind == .you || item.kind == .ember
+            case .travail:      lensOK = item.kind == .task
+            case .creations:    lensOK = item.kind == .creation
             }
+            guard lensOK else { return false }
+            guard !q.isEmpty else { return true }
+            return item.text.lowercased().contains(q) || (item.detail?.lowercased().contains(q) ?? false)
         }.reversed()   // le plus récent d'abord
+    }
+
+    // Regroupé par jour pour le repère chronologique (Aujourd'hui / Hier / date).
+    private var grouped: [(String, [TimelineItem])] {
+        var order: [String] = []
+        var map: [String: [TimelineItem]] = [:]
+        let cal = Calendar.current
+        for it in items {
+            let key = dayLabel(it.date, cal)
+            if map[key] == nil { map[key] = []; order.append(key) }
+            map[key]?.append(it)
+        }
+        return order.map { ($0, map[$0] ?? []) }
+    }
+
+    private func dayLabel(_ date: Date, _ cal: Calendar) -> String {
+        if cal.isDateInToday(date) { return "Aujourd'hui" }
+        if cal.isDateInYesterday(date) { return "Hier" }
+        return date.formatted(.dateTime.weekday(.wide).day().month(.wide))
     }
 
     private var creationCount: Int { state.history.filter { $0.kind == .creation }.count }
@@ -39,7 +64,7 @@ struct HistoryView: View {
                     Spacer()
                 }
 
-                // Filtres = les 3 lentilles (+ Tout)
+                // Filtres = les 3 lentilles (+ Tout) + recherche
                 HStack(spacing: 9) {
                     ForEach(Lens.allCases) { l in
                         ChipButton(label: l.rawValue, selected: lens == l) { lens = l }
@@ -51,18 +76,37 @@ struct HistoryView: View {
                     }
                 }
 
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x9a8d84))
+                    TextField("Rechercher dans l'historique…", text: $query)
+                        .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x8a7d75))
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 11).fill(.white.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(.white.opacity(0.08), lineWidth: 1))
+
                 if items.isEmpty {
                     VStack(spacing: 8) {
-                        Image(systemName: "clock").font(.system(size: 26)).foregroundStyle(Color(hexv: 0x6a5b52))
+                        Image(systemName: query.isEmpty ? "clock" : "magnifyingglass").font(.system(size: 26)).foregroundStyle(Color(hexv: 0x6a5b52))
                         Text(state.history.isEmpty
                              ? "Rien encore. Parle à Ember ou confie-lui une tâche — tout s'archivera ici."
-                             : "Aucun élément dans cette lentille.")
+                             : (query.isEmpty ? "Aucun élément dans cette lentille." : "Aucun résultat pour « \(query) »."))
                             .font(.system(size: 13)).foregroundStyle(.emberMuted).multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity).padding(.top, 60)
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(items) { row($0) }
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(grouped, id: \.0) { day, rows in
+                            VStack(alignment: .leading, spacing: 8) {
+                                SectionLabel(LocalizedStringKey(day))
+                                ForEach(rows) { row($0) }
+                            }
+                        }
                     }
                 }
             }
