@@ -16,17 +16,22 @@ struct AgentEvent: Identifiable, Hashable {
 /// One turn of the Mode Her conversation (the "flux conversation", §4.E).
 struct HerTurn: Identifiable, Equatable {
     enum Role { case user, ember }
-    let id = UUID()
+    let id: UUID
     let role: Role
     var text: String
-    var working: Bool = false   // an "Ember travaille…" turn whose detail is the work stream
+    var working: Bool           // an "Ember travaille…" turn whose detail is the work stream
+    // id par défaut neuf, mais on peut le forcer pour qu'un tour restauré garde l'id de son
+    // entrée d'historique (→ « Revenir » sait re-scroller jusqu'à cette étape).
+    init(id: UUID = UUID(), role: Role, text: String, working: Bool = false) {
+        self.id = id; self.role = role; self.text = text; self.working = working
+    }
 }
 
 /// A request for Ember to speak a line aloud (consumed by the view → SpeechController).
 struct SpeakRequest: Equatable { let id = UUID(); var text: String; var lang: String }
 
 /// Which primary screen is showing in the main content area.
-enum MainView { case her, ingest, memory, settings }   // Her = la base ; les autres = la coulisse
+enum MainView { case her, ingest, memory, history, settings }   // Her = la base ; les autres = la coulisse
 
 /// Central observable state. Owns the Engine and exposes UI-friendly @Published
 /// values. All engine work is async; UI updates hop back to the main actor.
@@ -111,6 +116,11 @@ final class AppState: ObservableObject {
     // stream (the agent above). Ember chats by default and auto-switches to work when she
     // detects a real task. `herSpeak` is set whenever a line should be spoken aloud.
     @Published var herConversation: [HerTurn] = []
+    // La timeline persistée (les 3 lentilles : conversation / travail / créations) + une cible de
+    // défilement pour « Revenir à cette étape » depuis l'Historique.
+    @Published var history: [TimelineItem] = []
+    @Published var scrollTarget: UUID?
+    private let historyStore = HistoryStore()
     @Published var herListening = false                // mic is open (orb → écoute)
     @Published var herSpeaking = false                 // a reply is playing (orb → parle)
     @Published var herSpeak: SpeakRequest?             // view observes → plays via SpeechController
@@ -189,11 +199,35 @@ final class AppState: ObservableObject {
     /// Switch the active IA: load its conversation-agnostic memory and reset the view.
     func select(_ model: PersonalModelInfo?) {
         selected = model
-        herConversation = []      // switch IA → fresh Her conversation
+        herConversation = []      // vidé puis restauré depuis l'historique persistant
+        history = []
         facts = []
         switcherOpen = false
-        if let m = model { Task { await loadFacts(m.name) } }
+        if let m = model { Task { await loadFacts(m.name); await loadHistory(m.name) } }
     }
+
+    // MARK: - Historique persistant (Étape 2 : un endroit pour retrouver + revenir à chaque étape)
+
+    /// Enregistre une étape clé dans la timeline locale et la sauve (par IA, 100% local).
+    private func record(_ item: TimelineItem) {
+        history.append(item)
+        guard let name = selected?.name else { return }
+        let snapshot = history
+        Task { await historyStore.save(name, snapshot) }
+    }
+
+    /// Restaure le fil (derniers messages) + charge la timeline pour les lentilles Historique/Créations.
+    func loadHistory(_ name: String) async {
+        let items = await historyStore.load(name)
+        history = items
+        // On ne ré-injecte dans le fil vivant que les messages (les 60 derniers) — le travail et
+        // les créations restent consultables dans la vue Historique (et les fichiers sur le disque).
+        let msgs = items.filter { $0.kind == .you || $0.kind == .ember }.suffix(60)
+        herConversation = msgs.map { HerTurn(id: $0.id, role: $0.kind == .you ? .user : .ember, text: $0.text) }
+    }
+
+    func openPath(_ p: String) { NSWorkspace.shared.open(URL(fileURLWithPath: p)) }
+    func revealPath(_ p: String) { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: p)]) }
 
     func create(name: String, base: String) async {
         isBusy = true; defer { isBusy = false }
@@ -290,7 +324,9 @@ final class AppState: ObservableObject {
     func herSend(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let name = selected?.name, !agentBusy else { return }
-        herConversation.append(HerTurn(role: .user, text: text))
+        let userTurn = HerTurn(role: .user, text: text)
+        herConversation.append(userTurn)
+        record(TimelineItem(id: userTurn.id, date: Date(), kind: .you, text: text))   // persisté
         herTask = Task {
             let mode = await engine.route(name: name, message: text)
             herMode = mode
@@ -298,10 +334,11 @@ final class AppState: ObservableObject {
                 let ack = "D'accord, je m'en occupe."
                 herConversation.append(HerTurn(role: .ember, text: ack, working: true))
                 herSpeak = SpeakRequest(text: ack, lang: herLang)
-                runAgentTask(text)                       // fills agentEvents; speaks summary on done
+                runAgentTask(text)                       // fills agentEvents; speaks summary on done (persiste la tâche)
             } else {
+                let emberTurn = HerTurn(role: .ember, text: "")
                 let idx = herConversation.count
-                herConversation.append(HerTurn(role: .ember, text: ""))
+                herConversation.append(emberTurn)
                 isBusy = true; defer { isBusy = false; talking = false }
                 var acc = ""
                 do {
@@ -316,6 +353,10 @@ final class AppState: ObservableObject {
                     herConversation[idx].text = acc.isEmpty ? "(interrompu)" : acc + " ⏹"
                 } else if acc.isEmpty, idx < herConversation.count {
                     herConversation[idx].text = "…"
+                }
+                let finalText = idx < herConversation.count ? herConversation[idx].text : acc
+                if !finalText.isEmpty, finalText != "…" {
+                    record(TimelineItem(id: emberTurn.id, date: Date(), kind: .ember, text: finalText))
                 }
                 herSpeak = SpeakRequest(text: (Task.isCancelled || acc.isEmpty) ? "" : acc, lang: herLang)
             }
@@ -342,8 +383,11 @@ final class AppState: ObservableObject {
                     self.agentEvents.append(e)
                     // Work summary flows back into the conversation timeline + is spoken aloud.
                     if (e.type == "done" || e.type == "message"), !e.text.isEmpty {
-                        self.herConversation.append(HerTurn(role: .ember, text: e.text))
+                        let emberTurn = HerTurn(role: .ember, text: e.text)
+                        self.herConversation.append(emberTurn)
                         self.herSpeak = SpeakRequest(text: e.text, lang: self.herLang)
+                        // Persiste la tâche dans la lentille « Travail » (texte = demande, détail = résultat).
+                        self.record(TimelineItem(id: emberTurn.id, date: Date(), kind: .task, text: t, detail: e.text))
                     }
                     if e.type == "done" || e.type == "error" { break }
                 }
@@ -652,6 +696,9 @@ final class AppState: ObservableObject {
             let url = dir.appendingPathComponent("\(slug).md")
             try r.content.write(to: url, atomically: true, encoding: .utf8)
             lastGenerated = GeneratedDoc(title: r.title, path: url)
+            // Persiste dans la lentille « Créations » (retrouvable + ouvrable plus tard).
+            record(TimelineItem(date: Date(), kind: .creation, text: r.title,
+                                detail: "Document · 100% local", path: url.path))
         } catch {
             errorText = "Génération impossible : \(error.localizedDescription)"
         }

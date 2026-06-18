@@ -272,6 +272,20 @@ private struct ConversationColumn: View {
                 .onChange(of: state.agentEvents) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: state.generating) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: state.lastGenerated?.title) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                // « Revenir à cette étape » depuis l'Historique : on défile jusqu'au tour visé.
+                .onChange(of: state.scrollTarget) { _, t in
+                    guard let t else { return }
+                    withAnimation { proxy.scrollTo(t, anchor: .center) }
+                    state.scrollTarget = nil
+                }
+                .onAppear {
+                    guard let t = state.scrollTarget else { return }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 380_000_000)   // laisse la transition + le layout se poser
+                        withAnimation { proxy.scrollTo(t, anchor: .center) }
+                        state.scrollTarget = nil
+                    }
+                }
             }
         }
     }

@@ -46,6 +46,7 @@ struct ContentView: View {
         case .her:      HerView()                 // l'écran de base
         case .ingest:   IngestView()              // coulisse
         case .memory:   MemoryView()
+        case .history:  HistoryView()
         case .settings: SettingsScreen()
         }
     }
@@ -99,9 +100,10 @@ struct TopBar: View {
                     }
                     Spacer(minLength: 8)
                     // À droite : la coulisse — Apprendre · Mémoire · Réglages.
-                    NavTab(icon: "arrow.up.to.line", label: "Apprendre", target: .ingest,   showLabel: !compact)
-                    NavTab(icon: "brain",            label: "Mémoire",   target: .memory,   showLabel: !compact)
-                    NavTab(icon: "gearshape",        label: "Réglages",  target: .settings, showLabel: !compact)
+                    NavTab(icon: "arrow.up.to.line",       label: "Apprendre",  target: .ingest,   showLabel: !compact)
+                    NavTab(icon: "brain",                  label: "Mémoire",    target: .memory,   showLabel: !compact)
+                    NavTab(icon: "clock.arrow.circlepath", label: "Historique", target: .history,  showLabel: !compact)
+                    NavTab(icon: "gearshape",              label: "Réglages",   target: .settings, showLabel: !compact)
                     LocalPill(compact: compact)
                 }
                 .padding(.horizontal, 16)
