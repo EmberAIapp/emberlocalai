@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key>
-    <string>fr</string>
+    <string>en</string>
     <key>CFBundleLocalizations</key>
     <array>
         <string>fr</string>
@@ -17,7 +17,7 @@
     <key>CFBundleDisplayName</key>
     <string>Ember</string>
     <key>CFBundleIdentifier</key>
-    <string>app.emberai.desktop</string>
+    <string>com.emberlocalai.ember</string>
     <key>CFBundleVersion</key>
     <string>0.1.0</string>
     <key>CFBundleShortVersionString</key>
@@ -35,8 +35,8 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Ember utilise le micro pour le Mode Her mains-libres — la reconnaissance vocale est locale (sur ton Mac).</string>
+    <string>Ember uses the microphone for hands-free Her Mode — speech recognition runs locally, on your Mac.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Ember transcrit ta voix localement pour le Mode Her. Rien n'est envoyé à un serveur.</string>
+    <string>Ember transcribes your voice locally for Her Mode. Nothing is ever sent to a server.</string>
 </dict>
 </plist>
