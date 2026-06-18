@@ -34,6 +34,8 @@ final class SpeechController: ObservableObject {
     @Published var authorized = false
     @Published var partial = ""
     @Published var fullDuplex = false        // AEC engaged → user can talk over Ember
+    @Published var wakeListening = false     // écoute permanente « Ok Ember » active (micro armé)
+    @Published var wakeFired = 0             // incrémenté à chaque détection → la vue démarre la voix
 
     /// Called (main actor) with the user's transcript at the end of each turn.
     var onTranscript: ((String) -> Void)?
@@ -69,6 +71,13 @@ final class SpeechController: ObservableObject {
     private var speakingOff: Task<Void, Never>?
     private var localeId = "fr-FR"
     private var spokenText = ""          // what Ember is currently saying (reject false barge-ins)
+
+    // --- Wake word « Ok Ember » (écoute permanente, on-device) ---
+    private var wakeEngine: AVAudioEngine?
+    private var wakeReq: SFSpeechAudioBufferRecognitionRequest?
+    private var wakeTask: SFSpeechRecognitionTask?
+    private var wakeConsumer: Task<Void, Never>?
+    private var wakeArmed = false
 
     /// True if a recognized partial is mostly Ember's own current speech (imperfect AEC residual),
     /// so we DON'T treat it as the user barging in.
@@ -375,5 +384,71 @@ final class SpeechController: ObservableObject {
                                  isFinal: result?.isFinal ?? false, failed: error != nil))
             if (result?.isFinal ?? false) || error != nil { cont.finish() }
         }
+    }
+
+    // MARK: - Wake word « Ok Ember » (écoute permanente, 100% sur l'appareil)
+    // Reconnaissance on-device en continu ; à la détection de la phrase on prévient la vue
+    // (wakeFired) qui lance la conversation. Auto-redémarrage (SFSpeech finit après ~1 min / silence).
+
+    func startWakeListening(locale: String) {
+        guard authorized, !sessionActive, !listening, !speaking else { return }
+        localeId = locale
+        wakeArmed = true
+        beginWake()
+    }
+
+    func stopWakeListening() {
+        wakeArmed = false
+        teardownWakeEngine()
+    }
+
+    private func beginWake() {
+        guard wakeArmed, !sessionActive, wakeEngine == nil else { return }
+        guard let rec = SFSpeechRecognizer(locale: Locale(identifier: localeId)), rec.isAvailable else { return }
+        let eng = AVAudioEngine()
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        req.requiresOnDeviceRecognition = true        // §7 : jamais de serveur Apple
+        wakeReq = req
+        let (stream, cont) = AsyncStream.makeStream(of: STTUpdate.self)
+        do { wakeTask = try Self.beginTB(rec: rec, engine: eng, req: req, cont: cont) }
+        catch { teardownWakeEngine(); return }
+        wakeEngine = eng; wakeListening = true
+        wakeConsumer = Task { @MainActor in
+            for await u in stream {
+                if let t = u.text, Self.isWakePhrase(t) { self.fireWake(); return }
+            }
+            // flux terminé (silence / timeout / erreur) → relancer si toujours armé
+            if self.wakeArmed && !self.sessionActive {
+                self.teardownWakeEngine()
+                self.beginWake()
+            }
+        }
+    }
+
+    private func fireWake() {
+        teardownWakeEngine()        // libère le micro pour la conversation
+        wakeArmed = false           // la vue ré-armera après la session
+        wakeFired &+= 1
+    }
+
+    private func teardownWakeEngine() {
+        if let eng = wakeEngine { if eng.isRunning { eng.stop() }; eng.inputNode.removeTap(onBus: 0) }
+        wakeEngine = nil
+        wakeTask?.cancel(); wakeTask = nil
+        wakeConsumer?.cancel(); wakeConsumer = nil
+        wakeReq = nil
+        wakeListening = false
+    }
+
+    /// Détection tolérante de « Ok Ember » (variantes de transcription Apple).
+    nonisolated static func isWakePhrase(_ raw: String) -> Bool {
+        let t = raw.lowercased().folding(options: .diacriticInsensitive, locale: nil)
+        let direct = ["ok ember", "okay ember", "ok amber", "okay amber", "hey ember", "hey amber",
+                      "ok ambre", "okay ambre", "ok embre", "ok hammer", "o k ember", "okember"]
+        if direct.contains(where: { t.contains($0) }) { return true }
+        let greet = t.contains("ok") || t.contains("okay") || t.contains("hey") || t.contains("o.k")
+        let name  = t.contains("ember") || t.contains("amber") || t.contains("ambre") || t.contains("embre")
+        return greet && name
     }
 }

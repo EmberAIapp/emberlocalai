@@ -58,11 +58,21 @@ struct HerView: View {
                 speech.toggleListening(locale: micLocale())
             }
         }
-        .onChange(of: speech.listening) { _, v in state.herListening = v }
+        .onChange(of: speech.listening) { _, v in state.herListening = v; if !v { armWakeIfWanted() } }
         .onChange(of: speech.speaking)  { _, v in
             state.herSpeaking = v
             if state.voiceSession && !v && !speech.fullDuplex { reopenMic() }
+            else if !v { armWakeIfWanted() }            // Ember a fini de parler → ré-arme « Ok Ember »
         }
+        // « Ok Ember » détecté → démarre la conversation mains-libres (sans toucher au bouton).
+        .onChange(of: speech.wakeFired) { _, _ in
+            if state.wakeWanted && !state.voiceSession { startVoice() }
+        }
+        .onChange(of: state.wakeWanted) { _, on in
+            if on { speech.requestAuth(); armWakeIfWanted() } else { speech.stopWakeListening() }
+        }
+        .onChange(of: state.voiceSession) { _, on in if !on { armWakeIfWanted() } }
+        .onChange(of: speech.authorized) { _, ok in if ok { armWakeIfWanted() } }   // permission accordée → arme
         .onChange(of: state.herSpeak) { _, req in
             guard let req else { return }
             state.lastSpoken = req.text                         // remember for echo rejection
@@ -72,17 +82,29 @@ struct HerView: View {
                 else if state.voiceSession { reopenMic() }
             }
         }
-        .onDisappear { speech.endVoice() }
+        .onDisappear { speech.endVoice(); speech.stopWakeListening() }
     }
 
     private func micLocale() -> String { SpeechController.locale(for: state.herLang) }
     private func startVoice() {
+        speech.stopWakeListening()                        // le micro passe à la conversation
         speech.allowFullDuplex = state.fullDuplexWanted   // opt-in talk-over, else reliable turn-based
         state.voiceSession = true
         speech.startVoice(locale: micLocale())
     }
-    private func endVoice() { state.voiceSession = false; speech.endVoice() }
+    private func endVoice() { state.voiceSession = false; speech.endVoice(); armWakeIfWanted() }
     private func toggleVoice() { if state.voiceSession { endVoice() } else { startVoice() } }
+
+    /// Ré-arme l'écoute « Ok Ember » dès que le système redevient inactif (et si l'utilisateur le veut).
+    private func armWakeIfWanted() {
+        guard state.wakeWanted else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 450_000_000)   // laisse le micro précédent se libérer
+            guard state.wakeWanted, !state.voiceSession, !speech.listening,
+                  !speech.speaking, !speech.wakeListening else { return }
+            speech.startWakeListening(locale: micLocale())
+        }
+    }
     private func reopenMic() {
         Task { @MainActor in
             // longer settle so the speaker's tail/echo of Ember's voice has died down before
@@ -380,6 +402,12 @@ private struct ConversationColumn: View {
             Text(state.voiceSession && speech.fullDuplex ? "Voix 100% locale · duplex" : "Voix & conversation 100% locales")
                 .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9bbfa3))
             Spacer(minLength: 6)
+            Button { state.wakeWanted.toggle() } label: {
+                pill(on: state.wakeWanted, icon: speech.wakeListening ? "waveform.badge.mic" : "mic.badge.plus",
+                     label: state.wakeWanted ? "Ok Ember ON" : "Ok Ember")
+            }
+            .buttonStyle(.plain)
+            .help("Dis « Ok Ember » pour démarrer sans toucher — écoute en continu, 100% sur le Mac. Le micro reste actif tant que c'est armé.")
             Button { state.fullDuplexWanted.toggle() } label: {
                 pill(on: state.fullDuplexWanted, icon: "waveform", label: state.fullDuplexWanted ? "Duplex ON" : "Duplex")
             }

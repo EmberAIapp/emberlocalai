@@ -131,6 +131,7 @@ final class AppState: ObservableObject {
     @Published var herSpeak: SpeakRequest?             // view observes → plays via SpeechController
     @Published var herMode = "chat"                    // last route decision (UI hint)
     @Published var voiceSession = false                // continuous "voice mode" (mains-libres en boucle)
+    @Published var wakeWanted = false                  // « Ok Ember » : écoute permanente du mot-clé armée
     @Published var lastSpoken = ""                      // Ember's last spoken line (for echo rejection)
     @Published var trustMode = false                   // "mode confiance": auto-allow non-Tier-3 actions
     @Published var fullDuplexWanted = false            // opt-in to talk-over (AEC) vs reliable turn-based
