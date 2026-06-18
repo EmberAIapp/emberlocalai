@@ -53,3 +53,9 @@ app/ANEForge/Ember.app/
 
 # Local Netlify folder
 .netlify
+
+# Build artifacts (app bundles, DMGs, icon sets) — never commit
+app/ANEForge/Ember.app/
+*.dmg
+app/ANEForge/Ember.iconset/
+app/ANEForge/*.icns
