@@ -103,23 +103,30 @@ struct WindowBackground: View {
     }
 }
 
-// MARK: - "100% local" green pill (the privacy signature)
-// Spec (shell L45-48): padding 5x11, gap 7, dot 6px glow #5fd07a, text 11/600 #9fd9ad,
-// bg rgba(95,208,122,0.10), border rgba(95,208,122,0.22).
+// MARK: - Seamless top-bar shadow (lets FLAT, box-free bar text read over the orb glow / ambience)
+// The bar dropped its material + pill fills (Her must be seamless), so each glyph carries this
+// faint dark shadow instead of a background — it's the only legibility net left.
+let kBarGlyphShadow = Color(hexv: 0x0a0605).opacity(0.55)
+
+// MARK: - "100% local" green signature (the privacy cue)
+// Flat now (no capsule): the trust lives in the glowing green dot + green word, not in chrome.
+// `compact` collapses it to the dot alone when the bar is narrow (responsive).
 
 struct LocalPill: View {
     var text: String = "100% local"
+    var compact: Bool = false
     var body: some View {
         HStack(spacing: 7) {
             Circle().fill(.localGreen).frame(width: 6, height: 6)
                 .shadow(color: .localGreen, radius: 4)
-            Text(LocalizedStringKey(text)).font(.system(size: 11, weight: .semibold)).tracking(0.2)
-                .foregroundStyle(Color(hexv: 0x9fd9ad))
+            if !compact {
+                Text(LocalizedStringKey(text)).font(.system(size: 11, weight: .semibold)).tracking(0.2)
+                    .foregroundStyle(Color(hexv: 0x9fd9ad))
+                    .shadow(color: kBarGlyphShadow, radius: 5)
+            }
         }
-        .padding(.horizontal, 11).padding(.vertical, 5)
-        .background(Color(hexv: 0x5fd07a).opacity(0.10))
-        .overlay(Capsule().strokeBorder(Color(hexv: 0x5fd07a).opacity(0.22), lineWidth: 1))
-        .clipShape(Capsule())
+        .padding(.horizontal, compact ? 6 : 4).padding(.vertical, 5)
+        .help(LocalizedStringKey(text))   // names the signal on hover (and when collapsed to the dot)
     }
 }
 

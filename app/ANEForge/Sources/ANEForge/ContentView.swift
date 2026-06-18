@@ -13,9 +13,9 @@ struct ContentView: View {
             WindowBackground()
 
             VStack(spacing: 0) {
+                // Pas de séparation : en Her la barre est transparente (elle flotte sur l'ambiance) ;
+                // en coulisse elle pose un voile dégradé (lisibilité) — jamais de trait dur.
                 TopBar(showingCreate: $showingCreate)
-                // title bar border-bottom: 1px rgba(255,255,255,0.06)
-                Divider().overlay(.white.opacity(0.06))
                 ZStack {
                     content   // Her (base) OU une coulisse (Apprendre/Mémoire/Réglages)
                 }
@@ -51,49 +51,86 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Title bar (IA switcher + "100% local")
-// Spec: height 48, padding 0 18px, gap 9; bg rgba(28,18,15,0.55) blur(24) saturate(160%);
-// border-bottom 1px rgba(255,255,255,0.06). Traffic lights are native on macOS — we reserve
-// their leading inset and center the switcher in the remaining width.
+// MARK: - Ghost hover (the ONLY thing that paints a background on a bar button)
+// At rest a bar button is pure text+icon over the ambience — no fill, no stroke, no « séparation ».
+// A faint capsule fades in only while hovered, so the affordance is there without boxing anything.
+private struct GhostBG: ViewModifier {
+    @State private var hovering = false
+    func body(content: Content) -> some View {
+        content
+            .background(Capsule().fill(.white.opacity(hovering ? 0.05 : 0)))
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .onHover { hovering = $0 }
+    }
+}
+private extension View { func ghostHover() -> some View { modifier(GhostBG()) } }
+
+// MARK: - Title bar (IA switcher au centre + nav coulisse + « 100% local »)
+// Sans séparation : transparente en Her (flotte sur l'ambiance WindowBackground), voile dégradé
+// en coulisse (lisibilité, jamais de trait). Hauteur 48 ; on réserve l'encoche des feux macOS.
+// Responsive : sous une certaine largeur, les onglets passent en icône seule et la pastille en point.
 
 struct TopBar: View {
     @EnvironmentObject var state: AppState
     @Binding var showingCreate: Bool
 
     var body: some View {
-        ZStack {
-            // Centre : le nom de l'IA (sélecteur) — « le nom de l'IA au centre ».
-            switcher
-            HStack(spacing: 10) {
-                // À gauche : revenir à Her quand on est en coulisse (remplace « Quitter »).
-                if state.view != .her {
-                    Button { state.go(.her) } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
-                            Text("Ember").font(.system(size: 12.5, weight: .semibold))
+        GeometryReader { geo in
+            let usable = geo.size.width                       // largeur à droite des feux (post padding)
+            let compact = usable < 760                        // → onglets en icône, pastille en point
+            let nameMax: CGFloat = usable >= 980 ? 240 : (usable >= 760 ? 180 : 120)
+            ZStack {
+                // Centre : le nom de l'IA (sélecteur) — « le nom de l'IA au centre ».
+                switcher(nameMax: nameMax)
+                HStack(spacing: 10) {
+                    // À gauche : revenir à Her quand on est en coulisse (remplace « Quitter »).
+                    if state.view != .her {
+                        Button { state.go(.her) } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                                if !compact { Text("Ember").font(.system(size: 12.5, weight: .semibold)) }
+                            }
+                            .foregroundStyle(Color(hexv: 0xd8c6ba))
+                            .shadow(color: kBarGlyphShadow, radius: 5)
+                            .padding(.vertical, 5).padding(.horizontal, 11)
+                            .ghostHover()
                         }
-                        .foregroundStyle(Color(hexv: 0xd8c6ba))
-                        .padding(.vertical, 5).padding(.horizontal, 11)
-                        .background(Capsule().fill(.white.opacity(0.06)))
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                        .buttonStyle(.plain).help("Revenir à Ember")
                     }
-                    .buttonStyle(.plain).help("Revenir à Ember")
+                    Spacer(minLength: 8)
+                    // À droite : la coulisse — Apprendre · Mémoire · Réglages.
+                    NavTab(icon: "arrow.up.to.line", label: "Apprendre", target: .ingest,   showLabel: !compact)
+                    NavTab(icon: "brain",            label: "Mémoire",   target: .memory,   showLabel: !compact)
+                    NavTab(icon: "gearshape",        label: "Réglages",  target: .settings, showLabel: !compact)
+                    LocalPill(compact: compact)
                 }
-                Spacer()
-                // À droite : la coulisse — Apprendre · Mémoire · Réglages.
-                NavTab(icon: "arrow.up.to.line", label: "Apprendre", target: .ingest)
-                NavTab(icon: "brain", label: "Mémoire", target: .memory)
-                NavTab(icon: "gearshape", label: "Réglages", target: .settings)
-                LocalPill()
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
+            .frame(height: 48)                                // clamp interne (GeometryReader est gourmand)
+            .animation(.easeInOut(duration: 0.16), value: compact)
         }
-        .frame(height: 48)
-        .padding(.leading, 78)   // leave room for the native traffic-light controls
-        .background(.ultraThinMaterial)
+        .frame(height: 48)                                   // clamp externe — garde le rythme 48pt
+        .padding(.leading, 78)                               // encoche des feux natifs
+        .background(barBackground)                           // remplace .ultraThinMaterial
     }
 
-    private var switcher: some View {
+    // Her : aucune séparation (transparent → WindowBackground transparaît). Coulisse : voile dégradé
+    // qui se fond vers le bas (lisibilité sur le contenu qui défile), sans aucun bord.
+    @ViewBuilder private var barBackground: some View {
+        if state.view == .her {
+            Color.clear
+        } else {
+            LinearGradient(stops: [
+                .init(color: Color(hexv: 0x140d0b).opacity(0.90), location: 0.0),
+                .init(color: Color(hexv: 0x140d0b).opacity(0.45), location: 0.6),
+                .init(color: .clear,                               location: 1.0),
+            ], startPoint: .top, endPoint: .bottom)
+            .background(.ultraThinMaterial)
+            .allowsHitTesting(false)
+        }
+    }
+
+    private func switcher(nameMax: CGFloat) -> some View {
         let name = state.selected?.name ?? "Ember"
         // Honest badge: how many facts Ember knows (real), not a fake training "version".
         let factCount = state.facts.count
@@ -108,29 +145,27 @@ struct TopBar: View {
                         .font(.system(size: 13, weight: .semibold))
                         .tracking(0.2)
                         .foregroundStyle(Color(hexv: 0xf0ddcf))
+                        .lineLimit(1).truncationMode(.tail)
+                        .frame(maxWidth: nameMax, alignment: .leading)   // tronque → jamais dans les côtés
+                        .shadow(color: kBarGlyphShadow, radius: 5)
                 }
-                // fact-count pill: 11px #9a8073, bg rgba(255,140,70,0.14), padding 2px 8px, radius 10
-                Text(state.selected == nil ? "·" : "\(factCount) fait\(factCount > 1 ? "s" : "")")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(hexv: 0x9a8073))
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(Color(hexv: 0xff8c46).opacity(0.14))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                // chevron ▾: 10px #8a7d75, margin-left 2px
+                // fact-count : texte plat « · N faits » (la pastille orange « séparait » → supprimée)
+                if state.selected != nil {
+                    Text("· \(factCount) fait\(factCount > 1 ? "s" : "")")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(hexv: 0x9a8073))
+                        .shadow(color: kBarGlyphShadow, radius: 5)
+                }
+                // chevron ▾
                 Text("▾")
                     .font(.system(size: 10))
                     .foregroundStyle(Color(hexv: 0x8a7d75))
+                    .shadow(color: kBarGlyphShadow, radius: 5)
                     .padding(.leading, 2)
             }
-            // pill: padding 5px 8px 5px 14px, radius 22
             .padding(.leading, 14).padding(.trailing, 8)
             .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 22)
-                    .fill(.white.opacity(0.05))
-                    .overlay(RoundedRectangle(cornerRadius: 22)
-                        .strokeBorder(Color(hexv: 0xffdcc8).opacity(0.12), lineWidth: 1))
-            )
+            .ghostHover()                                                // plat ; fond seulement au survol
         }
         .buttonStyle(.plain)
         .popover(isPresented: $state.switcherOpen, arrowEdge: .bottom) {
@@ -223,29 +258,43 @@ struct TopBar: View {
 }
 
 // MARK: - Nav tab (top-right : Apprendre · Mémoire · Réglages → coulisse)
+// Plat, sans « séparation de fond » : au repos = icône + texte qui flottent ; au survol un fond
+// capsule s'estompe ; l'état actif (en coulisse) se lit par la teinte chaude + un soulignement 2px
+// auto-épinglé (jamais de boîte, jamais de saut de mise en page). `showLabel` → responsive (icône seule).
 struct NavTab: View {
     @EnvironmentObject var state: AppState
     let icon: String
     let label: String
     let target: MainView
+    var showLabel: Bool = true
+    @State private var hovering = false
 
     var body: some View {
-        let active = state.view == target
+        let active = state.view == target          // en Her, faux pour les trois → rien d'actif
         Button { state.go(target) } label: {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 12, weight: .medium))
-                Text(LocalizedStringKey(label)).font(.system(size: 12.5, weight: active ? .semibold : .medium))
+                Image(systemName: icon).font(.system(size: 12, weight: active ? .semibold : .medium))
+                if showLabel {
+                    Text(LocalizedStringKey(label)).font(.system(size: 12.5, weight: active ? .semibold : .medium))
+                }
             }
-            .foregroundStyle(active ? Color(hexv: 0x1a0f0a) : Color(hexv: 0xc9bbb1))
+            .foregroundStyle(active ? Color(hexv: 0xffb877) : Color(hexv: 0xc9bbb1))
+            .shadow(color: kBarGlyphShadow, radius: 5)
             .padding(.vertical, 5).padding(.horizontal, 11)
-            .background(
-                Capsule().fill(active
-                    ? AnyShapeStyle(LinearGradient(colors: [Color(hexv: 0xffb877), Color(hexv: 0xff7a3a)],
-                                                   startPoint: .topLeading, endPoint: .bottomTrailing))
-                    : AnyShapeStyle(Color.white.opacity(0.05))))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(active ? 0 : 0.08), lineWidth: 1))
+            .background(Capsule().fill(.white.opacity(hovering ? 0.05 : 0)))     // survol seulement, sans bord
+            .overlay(alignment: .bottom) {                                       // actif = soulignement
+                Capsule()
+                    .fill(LinearGradient(colors: [Color(hexv: 0xffb877), Color(hexv: 0xff7a3a)],
+                                         startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 2)
+                    .padding(.horizontal, 11)
+                    .opacity(active ? 1 : 0)                                     // pas de saut de layout
+            }
+            .animation(.easeOut(duration: 0.12), value: hovering)
         }
         .buttonStyle(.plain)
+        .help(LocalizedStringKey(label))           // nomme l'onglet même en icône seule
+        .onHover { hovering = $0 }
     }
 }
 

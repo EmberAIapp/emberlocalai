@@ -8,7 +8,7 @@ struct ANEForgeApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(state)
-                .frame(minWidth: 1100, minHeight: 720)
+                .frame(minWidth: 820, minHeight: 720)   // bar adapte (compacte) sous ~838px
                 .task { await state.boot() }
         }
         .windowStyle(.hiddenTitleBar)
