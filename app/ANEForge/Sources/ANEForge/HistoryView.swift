@@ -12,6 +12,7 @@ struct HistoryView: View {
     }
     @State private var lens: Lens = .tout
     @State private var query = ""
+    @State private var showingClear = false
 
     private var items: [TimelineItem] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -62,6 +63,18 @@ struct HistoryView: View {
                             .font(.system(size: 13)).foregroundStyle(.emberMuted)
                     }
                     Spacer()
+                    if !state.history.isEmpty {
+                        Button { showingClear = true } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "trash").font(.system(size: 11))
+                                Text("Tout effacer").font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundStyle(Color(hexv: 0xd88a72))
+                            .padding(.vertical, 6).padding(.horizontal, 12)
+                            .background(Capsule().strokeBorder(Color(hexv: 0xd85a30).opacity(0.4), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain).help("Effacer tout l'historique de cette IA")
+                    }
                 }
 
                 // Filtres = les 3 lentilles (+ Tout) + recherche
@@ -114,6 +127,12 @@ struct HistoryView: View {
             .frame(maxWidth: 920, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .alert("Tout effacer ?", isPresented: $showingClear) {
+            Button("Annuler", role: .cancel) {}
+            Button("Tout effacer", role: .destructive) { state.clearHistory() }
+        } message: {
+            Text("Efface tout l'historique de cette IA (conversation, travail, créations) et le fil. Les fichiers déjà générés restent sur ton Mac.")
+        }
     }
 
     private func row(_ item: TimelineItem) -> some View {
@@ -136,6 +155,12 @@ struct HistoryView: View {
             }
             Spacer(minLength: 10)
             actions(item)
+            // CRUD : supprimer cette entrée (le fichier d'une création reste sur le disque).
+            Button { state.deleteHistoryItem(item.id) } label: {
+                Image(systemName: "trash").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x8a7d75))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain).help("Supprimer cette entrée")
         }
         .padding(.vertical, 11).padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)

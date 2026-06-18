@@ -217,9 +217,28 @@ final class AppState: ObservableObject {
     /// Enregistre une étape clé dans la timeline locale et la sauve (par IA, 100% local).
     private func record(_ item: TimelineItem) {
         history.append(item)
+        persistHistory()
+    }
+
+    private func persistHistory() {
         guard let name = selected?.name else { return }
         let snapshot = history
         Task { await historyStore.save(name, snapshot) }
+    }
+
+    /// CRUD — supprime UNE entrée de l'historique (et le tour correspondant dans le fil).
+    /// Ne touche pas au fichier d'une création sur le disque (non destructif).
+    func deleteHistoryItem(_ id: UUID) {
+        history.removeAll { $0.id == id }
+        herConversation.removeAll { $0.id == id }
+        persistHistory()
+    }
+
+    /// CRUD — efface TOUT l'historique de l'IA courante (fil compris). Les fichiers générés restent sur le disque.
+    func clearHistory() {
+        history = []
+        herConversation = []
+        persistHistory()
     }
 
     /// Restaure le fil (derniers messages) + charge la timeline pour les lentilles Historique/Créations.
