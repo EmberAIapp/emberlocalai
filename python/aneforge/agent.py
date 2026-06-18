@@ -226,8 +226,9 @@ TOOLS = [
      "description": "Finish the task with a short summary for the user.",
      "parameters": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]}}},
 ]
-# scope = human label shown in the permission gate. read_clipboard/notify are intentionally
-# UNGATED (harmless). Everything that touches files/apps/personal data asks permission.
+# scope = human label shown in the permission gate. `notify` is intentionally UNGATED (harmless).
+# Everything that touches files/apps/personal data — or whose RESULT is exfiltrated to the cloud
+# brain — asks permission.
 SENSITIVE = {
     "list_dir": "Fichiers", "read_file": "Fichiers", "write_note": "Fichiers",
     "open_app": "Apps", "open_url": "Apps", "reveal_in_finder": "Fichiers",
@@ -236,6 +237,9 @@ SENSITIVE = {
     # Reading the user's PERSONAL MEMORY is sensitive too — its content is sent to the cloud
     # brain, so it must be gated (was previously ungated → silent exfiltration). §7.
     "list_facts": "Mémoire", "search_memory": "Mémoire",
+    # read_clipboard EXFILTRATES whatever is on the clipboard (passwords, 2FA codes…) to DeepSeek →
+    # Tier-3 (always ask, never auto-allowed). §7.
+    "read_clipboard": "Presse-papiers-lecture",
     # P2 — write/create (reversible), each gated:
     "write_clipboard": "Presse-papiers", "create_note": "Notes", "create_reminder": "Rappels",
     "create_event": "Agenda", "move_file": "Fichiers", "copy_file": "Fichiers",
@@ -248,7 +252,7 @@ CLOUD_SCOPE = "Cloud (DeepSeek)"
 # Scopes that must NEVER be auto-allowed / "remembered" — always per-action confirm. run_shortcut
 # can do anything (it runs a user shortcut), so it's Tier-3 too. (P3 send/delete/screen come later.)
 TIER3_SCOPES = {CLOUD_SCOPE, "Raccourcis", "Mail-envoi", "Messages-envoi",
-                "Agenda-invitation", "Fichiers-suppr", "Écran"}
+                "Agenda-invitation", "Fichiers-suppr", "Écran", "Presse-papiers-lecture"}
 
 
 def _exec(name, args, ia):
@@ -440,23 +444,33 @@ def _exec(name, args, ia):
     return "Outil inconnu."
 
 
-def run_agent(ia, task, emit, ask_permission, max_steps=8):
+def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
     """Drive the DeepSeek tool-use loop.
-    emit(event: dict)               -> stream a UI event.
-    ask_permission(tool, args, scope) -> bool, blocks until the user decides (sensitive tools).
+    emit(event: dict)                  -> stream a UI event.
+    ask_permission(tool, args, scope)  -> bool, blocks until the user decides (sensitive tools).
+    should_stop()                      -> bool ; checked before every cloud call AND every tool
+                                          execution so « Stop » halts the worker server-side
+                                          (no tool runs after the user cancels). §3.
     """
+    def stopped():
+        return bool(should_stop and should_stop())
+
     sys = ("Tu es l'agent d'Ember, l'IA personnelle locale de l'utilisateur. Accomplis la tâche "
            "en utilisant les outils, étape par étape, de façon concrète et brève. Réponds dans la "
            "langue de l'utilisateur. N'invente jamais un fait : sers-toi des outils. Quand c'est fini, "
            "appelle finish avec un court résumé.")
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": task}]
     emit({"type": "plan", "text": task})
+    if stopped():
+        emit({"type": "done", "summary": "Arrêté."}); return
     # CONSENTEMENT CLOUD explicite (§7) — rien ne part avant un OUI clair. Le cerveau est DeepSeek :
     # la tâche + les résultats d'outils (fichiers, notes, mémoire lus) y seront envoyés.
     if not ask_permission("__cloud__", {"task": task}, CLOUD_SCOPE):
         emit({"type": "done", "summary": "Tâche annulée — envoi vers le cloud refusé. Rien n'est sorti."})
         return
     for _ in range(max_steps):
+        if stopped():
+            emit({"type": "done", "summary": "Arrêté — aucune autre action."}); return
         try:
             msg = _deepseek(messages, TOOLS)
         except Exception as e:
@@ -477,11 +491,17 @@ def run_agent(ia, task, emit, ask_permission, max_steps=8):
             if name == "finish":
                 emit({"type": "done", "summary": args.get("summary", "Terminé.")})
                 return
+            # Vérifie l'arrêt AVANT d'exécuter l'outil → aucune mutation (déplacement, brouillon mail,
+            # événement…) ne se produit après « Stop ».
+            if stopped():
+                emit({"type": "done", "summary": "Arrêté — action non exécutée."}); return
             emit({"type": "tool", "name": name, "args": args})
             scope = SENSITIVE.get(name)
             if scope and not ask_permission(name, args, scope):
                 result = "Action refusée par l'utilisateur."
                 emit({"type": "observation", "name": name, "text": result, "denied": True})
+            elif stopped():
+                emit({"type": "done", "summary": "Arrêté — action non exécutée."}); return
             else:
                 try:
                     result = _exec(name, args, ia)

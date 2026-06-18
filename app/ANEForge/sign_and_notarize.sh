@@ -12,16 +12,24 @@ set -e
 cd "$(dirname "$0")"
 : "${DEV_ID:?Set DEV_ID to your 'Developer ID Application: Name (TEAMID)' certificate}"
 APP="Ember.app"; DMG="Ember.dmg"
+ENT="$(pwd)/Ember.entitlements"
 [ -d "$APP" ] || { echo "Build $APP first:  DIST=1 ./build_app.sh"; exit 1; }
+[ -f "$ENT" ] || { echo "Missing $ENT"; exit 1; }
 
-echo "1/5  Signing nested binaries (the embedded relocatable Python) with hardened runtime…"
-# The embedded Python ships many mach-O files; each must be signed before the outer app.
+echo "1/5  Signing nested mach-O bottom-up (embedded Python/MLX) WITH entitlements…"
+# Every nested mach-O (the bundled venv ships hundreds) must be signed BEFORE the outer app, each
+# with the SAME entitlements — the nested python3 is what allocates JIT memory + loads MLX. We do NOT
+# use --deep (deprecated; signs inconsistently and doesn't apply entitlements to nested binaries).
 find "$APP/Contents/Resources/engine" -type f \
-  \( -name '*.dylib' -o -name '*.so' -o -name 'python3*' \) -print0 \
-  | xargs -0 -I{} codesign --force --options runtime --timestamp --sign "$DEV_ID" {} 2>/dev/null || true
+  \( -name '*.dylib' -o -name '*.so' -o -name '*.bin' -o -perm -u+x \) -print0 \
+  | xargs -0 -I{} codesign --force --options runtime --timestamp \
+        --entitlements "$ENT" --sign "$DEV_ID" {} 2>/dev/null || true
+# Then the app's own helper binary.
+codesign --force --options runtime --timestamp --entitlements "$ENT" --sign "$DEV_ID" \
+  "$APP/Contents/MacOS/Ember.bin" 2>/dev/null || true
 
-echo "2/5  Signing the app (deep, hardened runtime)…"
-codesign --force --deep --options runtime --timestamp --sign "$DEV_ID" "$APP"
+echo "2/5  Signing the outer app (hardened runtime + entitlements, NO --deep)…"
+codesign --force --options runtime --timestamp --entitlements "$ENT" --sign "$DEV_ID" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
 
 echo "3/5  Building + signing the DMG…"

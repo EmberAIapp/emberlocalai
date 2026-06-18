@@ -212,6 +212,15 @@ actor Engine {
         _ = try? await URLSession.shared.data(for: req)
     }
 
+    /// « Stop » côté serveur : arrête le worker de l'agent → plus AUCUN outil exécuté après l'annulation.
+    nonisolated func agentStop(session: String) async {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/agent_stop") else { return }
+        var req = URLRequest(url: url); req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["session": session])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     func chat(name: String, prompt: String) async throws -> ChatReply {
         try JSONDecoder().decode(ChatReply.self, from: try await post("/chat", ["name": name, "prompt": prompt]))
     }
@@ -279,10 +288,6 @@ actor Engine {
         _ = try await post("/forget", ["name": name, "id": id])
     }
 
-    func forgetAll(name: String) async throws {
-        _ = try await post("/forget", ["name": name, "all": true])
-    }
-
     func getSettings(name: String) async throws -> AISettings {
         try JSONDecoder().decode(AISettings.self, from: try await get("/settings?name=\(name)"))
     }
@@ -290,11 +295,6 @@ actor Engine {
     func setSettings(name: String, persona: String, maxTokens: Int, temperature: Double, tone: String) async throws {
         _ = try await post("/settings", ["name": name, "persona": persona,
                                          "max_tokens": maxTokens, "temperature": temperature, "tone": tone])
-    }
-
-    /// Train on a data file — still a streaming CLI subprocess (Rust engine).
-    nonisolated func learn(name: String, dataPath: String) -> AsyncThrowingStream<String, Error> {
-        streamRun(["-m", "aneforge.cli", "learn", name, "--data", dataPath])
     }
 
     // MARK: - HTTP
@@ -330,25 +330,4 @@ actor Engine {
         return p
     }
 
-    nonisolated private func streamRun(_ args: [String]) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            let p = self.rawProcess(args)
-            let outPipe = Pipe()
-            p.standardOutput = outPipe
-            p.standardError = outPipe
-            let handle = outPipe.fileHandleForReading
-            handle.readabilityHandler = { h in
-                let d = h.availableData
-                if d.isEmpty { return }
-                if let s = String(data: d, encoding: .utf8) {
-                    for line in s.split(separator: "\n") { continuation.yield(String(line)) }
-                }
-            }
-            p.terminationHandler = { _ in
-                handle.readabilityHandler = nil
-                continuation.finish()
-            }
-            do { try p.run() } catch { continuation.finish(throwing: error) }
-        }
-    }
 }

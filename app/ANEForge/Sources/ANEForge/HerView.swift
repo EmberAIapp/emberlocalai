@@ -71,6 +71,12 @@ struct HerView: View {
         .onChange(of: state.wakeWanted) { _, on in
             if on { speech.requestAuth(); armWakeIfWanted() } else { speech.stopWakeListening() }
         }
+        .onChange(of: speech.wakeFailed) { _, failed in
+            guard failed else { return }
+            state.wakeWanted = false        // on désarme : pas de boucle qui draine
+            state.errorText = "« Ok Ember » a besoin de la reconnaissance vocale SUR L'APPAREIL "
+                            + "(indisponible pour cette langue/machine, ou permission refusée). Le bouton micro reste, lui, disponible."
+        }
         .onChange(of: state.voiceSession) { _, on in if !on { armWakeIfWanted() } }
         .onChange(of: speech.authorized) { _, ok in if ok { armWakeIfWanted() } }   // permission accordée → arme
         .onChange(of: state.herSpeak) { _, req in
@@ -87,6 +93,14 @@ struct HerView: View {
 
     private func micLocale() -> String { SpeechController.locale(for: state.herLang) }
     private func startVoice() {
+        // Garde permission : sans autorisation, le micro était un cul-de-sac silencieux (« la voix ne
+        // marche pas »). On guide l'utilisateur au lieu d'échouer sans rien dire.
+        guard speech.authorized else {
+            speech.requestAuth()
+            state.errorText = "Pour parler à Ember, autorise « Microphone » et « Reconnaissance vocale » "
+                            + "dans Réglages système › Confidentialité et sécurité, puis réessaie."
+            return
+        }
         speech.stopWakeListening()                        // le micro passe à la conversation
         speech.allowFullDuplex = state.fullDuplexWanted   // opt-in talk-over, else reliable turn-based
         state.voiceSession = true
@@ -328,11 +342,14 @@ private struct ConversationColumn: View {
                     state.scrollTarget = nil
                 }
                 .onAppear {
-                    guard let t = state.scrollTarget else { return }
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 380_000_000)   // laisse la transition + le layout se poser
-                        withAnimation { proxy.scrollTo(t, anchor: .center) }
-                        state.scrollTarget = nil
+                        if let t = state.scrollTarget {
+                            withAnimation { proxy.scrollTo(t, anchor: .center) }   // « Revenir » → l'étape visée
+                            state.scrollTarget = nil
+                        } else {
+                            proxy.scrollTo("bottom", anchor: .bottom)              // fil restauré → message le plus récent
+                        }
                     }
                 }
             }
@@ -597,6 +614,7 @@ private struct HerEventRow: View {
         case "__cloud__":        return "Envoyer ta demande — et les résultats des outils (fichiers, notes, mémoire lus) — à DeepSeek (cloud) pour cette tâche. Rien n'est encore sorti."
         case "list_facts":       return "Lire tes faits de mémoire personnelle"
         case "search_memory":    return "Chercher dans ta mémoire personnelle"
+        case "read_clipboard":   return "Lire ton presse-papiers (il peut contenir des mots de passe / codes)"
         case "write_note":       return "Écrire « \(event.detail) » dans tes brouillons"
         case "read_file":        return "Lire « \(event.detail) »"
         case "list_dir":         return "Lister « \(event.detail) »"
@@ -632,7 +650,7 @@ private struct HerEventRow: View {
     // Tier-3 scopes always re-ask (no "Toujours"): the cloud egress, shortcuts, sends, deletes…
     private var isTier3: Bool {
         ["Cloud (DeepSeek)", "Raccourcis", "Mail-envoi", "Messages-envoi",
-         "Agenda-invitation", "Fichiers-suppr", "Écran"].contains(event.scope)
+         "Agenda-invitation", "Fichiers-suppr", "Écran", "Presse-papiers-lecture"].contains(event.scope)
     }
 
     private var gateRow: some View {

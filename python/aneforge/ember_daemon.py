@@ -26,6 +26,7 @@ import re
 import threading
 import time
 import uuid
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -213,6 +214,7 @@ class _AgentSession:
         self.q: queue.Queue = queue.Queue()
         self._gate = threading.Event()
         self._decision = False
+        self._stop = threading.Event()  # « Stop » côté serveur → plus aucun outil n'est exécuté
         self.allowed: set = set()      # remembered "toujours" keys for THIS session (scope OR scope+path)
         self.auto_allow = False        # "mode confiance": auto-allow every non-Tier-3 scope
         self.blocked: set = set()      # scopes the user turned OFF in Réglages → HARD-denied
@@ -221,12 +223,22 @@ class _AgentSession:
     def emit(self, event: dict):
         self.q.put(event)
 
+    def stop(self):
+        """Demande d'arrêt : le worker s'arrête avant le prochain outil ; débloque une permission en attente."""
+        self._stop.set()
+        self._gate.set()
+
+    def stopped(self) -> bool:
+        return self._stop.is_set()
+
     def ask_permission(self, tool: str, args: dict, scope: str) -> bool:
         """Emit a gate event, then block until the user resumes (via /agent_resume).
         Allow silently if THIS scope+path was remembered ("toujours") OR if "mode confiance" is on —
         EXCEPT Tier-3 scopes (cloud egress, send/delete/screen…), which ALWAYS confirm explicitly.
         Remembering is keyed by scope+PATH so authorising one file never opens every file."""
         from aneforge.agent import TIER3_SCOPES
+        if self._stop.is_set():
+            return False                # arrêté → on ne demande même pas, on refuse
         # Réglages : un périmètre désactivé est REFUSÉ d'office (révocable, granulaire).
         if scope and scope in self.blocked:
             self.emit({"type": "observation", "name": tool,
@@ -241,6 +253,8 @@ class _AgentSession:
         self.emit({"type": "gate", "tool": tool, "args": args, "scope": scope})
         self._gate.clear()
         if not self._gate.wait(timeout=300):   # 5 min to decide, else deny
+            return False
+        if self._stop.is_set():                # arrêté pendant l'attente → refus
             return False
         return self._decision
 
@@ -278,13 +292,28 @@ class Engine:
         self.ready = True
         threading.Thread(target=self._idle_loop, daemon=True).start()
 
+    @staticmethod
+    def _is_cached(model_id: str) -> bool:
+        """True if the model is already present in the local HF cache (→ no network download)."""
+        hf = os.environ.get("HF_HOME") or str(Path.home() / ".cache" / "huggingface")
+        safe = "models--" + model_id.replace("/", "--")
+        return (Path(hf) / "hub" / safe).exists() or (Path(hf) / safe).exists()
+
     def set_model(self, model_id: str):
-        """Switch the local model the user can change directly (Réglages). Downloads if needed;
-        the old model keeps serving until the new one is loaded, then we swap atomically."""
+        """Switch the local model the user can change directly (Réglages). For a 100%-local deploy we
+        only switch to a model ALREADY downloaded — never trigger a silent network download. A new
+        model must be fetched explicitly (out of band), not as a hidden side effect of a UI toggle."""
+        if model_id == self.model_id and self.mlx is not None:
+            return
+        if not self._is_cached(model_id):
+            print(f"[ember-daemon] set_model REFUSED ({model_id}): non téléchargé "
+                  f"(pas de téléchargement silencieux).", flush=True)
+            self.loading = None
+            return
         def _load():
             try:
                 from aneforge.mlx_chat import MLXChat
-                m = MLXChat(model_id)                      # may download (minutes); old model still serves
+                m = MLXChat(model_id)                      # already cached → loads offline
                 with self._lock:
                     self.mlx = m
                     self.model_id = model_id
@@ -294,8 +323,6 @@ class Engine:
                 print(f"[ember-daemon] set_model FAILED ({model_id}): {e}", flush=True)
             finally:
                 self.loading = None
-        if model_id == self.model_id and self.mlx is not None:
-            return
         self.loading = model_id
         threading.Thread(target=_load, daemon=True).start()
 
@@ -729,7 +756,8 @@ def make_handler(engine: Engine):
 
                     def _worker():
                         try:
-                            run_agent(name, task, sess.emit, sess.ask_permission)
+                            run_agent(name, task, sess.emit, sess.ask_permission,
+                                      should_stop=sess.stopped)
                         except Exception as e:
                             sess.emit({"type": "error", "text": str(e)})
                         sess.emit({"type": "_end"})
@@ -749,6 +777,12 @@ def make_handler(engine: Engine):
                     sess = _AGENT_SESSIONS.get(b.get("session"))
                     if sess:
                         sess.resume(bool(b.get("allow")), bool(b.get("remember")))
+                    return self._send(200, {"ok": True})
+                if u.path == "/agent_stop":
+                    # « Stop » → arrête le worker côté serveur : plus aucun outil exécuté après ça.
+                    sess = _AGENT_SESSIONS.get(b.get("session"))
+                    if sess:
+                        sess.stop()
                     return self._send(200, {"ok": True})
                 if u.path == "/add_fact":
                     # explicit fact the USER typed in Mémoire → store it VERBATIM. No grounding

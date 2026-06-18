@@ -204,6 +204,8 @@ final class AppState: ObservableObject {
 
     /// Switch the active IA: load its conversation-agnostic memory and reset the view.
     func select(_ model: PersonalModelInfo?) {
+        herTask?.cancel()         // aucun flux ne doit continuer à écrire dans l'IA qu'on quitte
+        flushHistory()            // sauve immédiatement l'IA courante avant d'en changer
         selected = model
         herConversation = []      // vidé puis restauré depuis l'historique persistant
         history = []
@@ -214,16 +216,36 @@ final class AppState: ObservableObject {
 
     // MARK: - Historique persistant (Étape 2 : un endroit pour retrouver + revenir à chaque étape)
 
+    private static let historyCap = 5000     // plafond glissant → écriture bornée (anti O(n²))
+    private static let restoreCap = 80       // fil vivant restauré ; au-delà → expansion à la demande
+    private var saveTask: Task<Void, Never>?
+
     /// Enregistre une étape clé dans la timeline locale et la sauve (par IA, 100% local).
     private func record(_ item: TimelineItem) {
         history.append(item)
+        if history.count > Self.historyCap { history.removeFirst(history.count - Self.historyCap) }
         persistHistory()
     }
 
+    /// Sauvegarde COALESCÉE : en streaming, un token = un record ; on regroupe les écritures en UNE
+    /// après un court délai → fini la réécriture du fichier entier à chaque token (régression de perf).
     private func persistHistory() {
         guard let name = selected?.name else { return }
         let snapshot = history
-        Task { await historyStore.save(name, snapshot) }
+        saveTask?.cancel()
+        saveTask = Task { [historyStore] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            if Task.isCancelled { return }
+            await historyStore.save(name, snapshot)
+        }
+    }
+
+    /// Écrit l'historique TOUT DE SUITE (fermeture de l'app, changement d'IA) → les derniers tours
+    /// ne sont jamais perdus sur un Cmd-Q juste après une réponse.
+    func flushHistory() {
+        guard let name = selected?.name else { return }
+        saveTask?.cancel()
+        HistoryStore.saveSync(name, history)
     }
 
     /// CRUD — supprime UNE entrée de l'historique (et le tour correspondant dans le fil).
@@ -236,6 +258,7 @@ final class AppState: ObservableObject {
 
     /// CRUD — efface TOUT l'historique de l'IA courante (fil compris). Les fichiers générés restent sur le disque.
     func clearHistory() {
+        herTask?.cancel()
         history = []
         herConversation = []
         persistHistory()
@@ -245,9 +268,12 @@ final class AppState: ObservableObject {
     func loadHistory(_ name: String) async {
         let items = await historyStore.load(name)
         history = items
-        // On restaure TOUT le fil (les 80 dernières étapes) dans l'ordre : messages, résultats de
-        // travail ET cartes de création — pour retrouver le fil tel qu'il était.
-        herConversation = items.suffix(80).map { it in
+        herConversation = Self.turns(from: items.suffix(Self.restoreCap))
+    }
+
+    /// Mappe des entrées de timeline en tours de fil (messages, résultats de travail, cartes de création).
+    private static func turns(from items: ArraySlice<TimelineItem>) -> [HerTurn] {
+        items.map { it in
             switch it.kind {
             case .you:      return HerTurn(id: it.id, role: .user,  text: it.text)
             case .ember:    return HerTurn(id: it.id, role: .ember, text: it.text)
@@ -255,6 +281,16 @@ final class AppState: ObservableObject {
             case .creation: return HerTurn(id: it.id, role: .ember, text: it.text, kind: .creation, path: it.path)
             }
         }
+    }
+
+    /// « Revenir » depuis l'Historique : si la cible est plus ancienne que les 80 tours restaurés,
+    /// on étend le fil à TOUT l'historique pour que le défilement la trouve (sinon : no-op silencieux).
+    func jumpToHistory(_ id: UUID) {
+        if !herConversation.contains(where: { $0.id == id }) {
+            herConversation = Self.turns(from: history[...])
+        }
+        scrollTarget = id
+        go(.her)
     }
 
     func openPath(_ p: String) { NSWorkspace.shared.open(URL(fileURLWithPath: p)) }
@@ -266,18 +302,6 @@ final class AppState: ObservableObject {
             try await engine.create(name: name, base: base)
             await refresh()
             select(models.first { $0.name == name })
-        } catch { errorText = error.localizedDescription }
-    }
-
-    func teach(dataPath: String) async {
-        guard let name = selected?.name else { return }
-        isLearning = true; trainingLog = []; defer { isLearning = false }
-        do {
-            for try await line in engine.learn(name: name, dataPath: dataPath) {
-                trainingLog.append(line)
-            }
-            await refresh()
-            await loadFacts(name)
         } catch { errorText = error.localizedDescription }
     }
 
@@ -324,12 +348,6 @@ final class AppState: ObservableObject {
         if !factQuery.trimmingCharacters(in: .whitespaces).isEmpty { await runSearch(factQuery) }
     }
 
-    func forgetAll() async {
-        guard let name = selected?.name else { return }
-        try? await engine.forgetAll(name: name)
-        facts = []
-    }
-
     func replayOnboard() { onboardStep = 1 }
     func skipOnboard() { onboardStep = 0 }
     func onboardNext() {
@@ -352,9 +370,16 @@ final class AppState: ObservableObject {
     /// Interrompre Her (§3) : coupe la réponse en cours (chat) OU le travail (agent), en gardant l'acquis.
     func interruptHer() { herTask?.cancel(); stopAgentTask() }
 
+    /// Met à jour le texte d'un tour PAR SON ID (pas par index positionnel) → un second message qui
+    /// arrive ne peut plus faire écrire les tokens dans le mauvais tour.
+    private func setTurnText(_ id: UUID, _ text: String) {
+        if let i = herConversation.firstIndex(where: { $0.id == id }) { herConversation[i].text = text }
+    }
+
     func herSend(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let name = selected?.name, !agentBusy else { return }
+        herTask?.cancel()         // un seul flux de chat à la fois → pas de tours qui se mélangent
         let userTurn = HerTurn(role: .user, text: text)
         herConversation.append(userTurn)
         record(TimelineItem(id: userTurn.id, date: Date(), kind: .you, text: text))   // persisté
@@ -368,7 +393,7 @@ final class AppState: ObservableObject {
                 runAgentTask(text)                       // fills agentEvents; speaks summary on done (persiste la tâche)
             } else {
                 let emberTurn = HerTurn(role: .ember, text: "")
-                let idx = herConversation.count
+                let tid = emberTurn.id
                 herConversation.append(emberTurn)
                 isBusy = true; defer { isBusy = false; talking = false }
                 var acc = ""
@@ -377,17 +402,17 @@ final class AppState: ObservableObject {
                         if Task.isCancelled { break }
                         if acc.isEmpty { isBusy = false; talking = true }
                         acc += delta
-                        if idx < herConversation.count { herConversation[idx].text = acc }
+                        setTurnText(tid, acc)                // écriture par id, jamais par index
                     }
                 } catch { }
-                if Task.isCancelled, idx < herConversation.count {
-                    herConversation[idx].text = acc.isEmpty ? "(interrompu)" : acc + " ⏹"
-                } else if acc.isEmpty, idx < herConversation.count {
-                    herConversation[idx].text = "…"
+                if Task.isCancelled {
+                    setTurnText(tid, acc.isEmpty ? "(interrompu)" : acc + " ⏹")
+                } else if acc.isEmpty {
+                    setTurnText(tid, "…")
                 }
-                let finalText = idx < herConversation.count ? herConversation[idx].text : acc
+                let finalText = herConversation.first(where: { $0.id == tid })?.text ?? acc
                 if !finalText.isEmpty, finalText != "…" {
-                    record(TimelineItem(id: emberTurn.id, date: Date(), kind: .ember, text: finalText))
+                    record(TimelineItem(id: tid, date: Date(), kind: .ember, text: finalText))
                 }
                 herSpeak = SpeakRequest(text: (Task.isCancelled || acc.isEmpty) ? "" : acc, lang: herLang)
             }
@@ -447,7 +472,11 @@ final class AppState: ObservableObject {
         return nil
     }
 
-    func stopAgentTask() { agentTask?.cancel(); agentBusy = false; agentPendingGate = nil }
+    func stopAgentTask() {
+        // Arrête le worker CÔTÉ SERVEUR d'abord (sinon les outils continuent), PUIS le flux local.
+        if let s = agentSession { Task { await engine.agentStop(session: s) } }
+        agentTask?.cancel(); agentBusy = false; agentPendingGate = nil
+    }
     /// Quitter une vue de coulisse → revenir à Her ; coupe la session vocale.
     func leaveToHer() { view = .her; voiceSession = false }
 
@@ -458,8 +487,6 @@ final class AppState: ObservableObject {
     /// not by fine-tuning weights. Reads .txt/.md as UTF-8 and .pdf via PDFKit.
     nonisolated static let supportedExt: Set<String> = ["txt", "md", "markdown", "text", "pdf", "rtf", "csv"]
     nonisolated static let fileCap = 80   // bound a folder/full scan so a huge tree can't run for hours
-
-    func teachFile(_ url: URL) async { await teachPaths([url]) }
 
     /// Learn from any mix of dropped/selected files AND folders (folders are walked for
     /// supported types). 100% local: each file's text → the local model's fact extractor.
@@ -648,19 +675,6 @@ final class AppState: ObservableObject {
         await loadFacts(name)
     }
 
-    /// « Remettre » : re-learn ALL connected folders at once (refresh the whole set).
-    func resyncAll() {
-        guard let ia = selected?.name,
-              let dict = UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data] else { return }
-        var urls: [URL] = []
-        for data in dict.values {
-            var stale = false
-            if let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil,
-                                  bookmarkDataIsStale: &stale) { urls.append(url) }
-        }
-        if !urls.isEmpty { learn(urls, full: true) }
-    }
-
     /// REAL Apple Notes connector (§4.A) — read the user's notes locally and learn facts from them.
     func teachNotes() async {
         guard let name = selected?.name else {
@@ -686,7 +700,9 @@ final class AppState: ObservableObject {
         isBusy = true; defer { isBusy = false }
         do {
             try await engine.delete(name: name)
-            if selected?.name == name { selected = nil; herConversation = [] }
+            await historyStore.delete(name)                                   // historique suit
+            UserDefaults.standard.removeObject(forKey: foldersKey(name))      // connecteurs suivent
+            if selected?.name == name { selected = nil; herConversation = []; history = [] }
             await refresh()
         } catch { errorText = error.localizedDescription }
     }
@@ -698,6 +714,12 @@ final class AppState: ObservableObject {
         isBusy = true; defer { isBusy = false }
         do {
             try await engine.rename(name: old, to: new)
+            await historyStore.rename(from: old, to: new)                     // l'historique suit l'IA
+            let ud = UserDefaults.standard                                    // les connecteurs aussi
+            if let dict = ud.dictionary(forKey: foldersKey(old)) {
+                ud.set(dict, forKey: foldersKey(new))
+                ud.removeObject(forKey: foldersKey(old))
+            }
             await refresh()
             if wasSelected { selected = models.first { $0.name == new } }
         } catch { errorText = error.localizedDescription }

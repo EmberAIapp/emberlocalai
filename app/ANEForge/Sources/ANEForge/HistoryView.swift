@@ -174,7 +174,7 @@ struct HistoryView: View {
                 Button { state.revealPath(p) } label: { pill("Révéler", filled: false) }.buttonStyle(.plain)
             }
         } else {
-            Button { state.scrollTarget = item.id; state.go(.her) } label: {
+            Button { state.jumpToHistory(item.id) } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 10, weight: .semibold))
                     Text("Revenir").font(.system(size: 11.5, weight: .medium))

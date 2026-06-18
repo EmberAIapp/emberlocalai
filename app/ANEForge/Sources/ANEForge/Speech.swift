@@ -36,6 +36,7 @@ final class SpeechController: ObservableObject {
     @Published var fullDuplex = false        // AEC engaged → user can talk over Ember
     @Published var wakeListening = false     // écoute permanente « Ok Ember » active (micro armé)
     @Published var wakeFired = 0             // incrémenté à chaque détection → la vue démarre la voix
+    @Published var wakeFailed = false        // la reco hors-ligne échoue → on abandonne (pas de drain)
 
     /// Called (main actor) with the user's transcript at the end of each turn.
     var onTranscript: ((String) -> Void)?
@@ -78,6 +79,7 @@ final class SpeechController: ObservableObject {
     private var wakeTask: SFSpeechRecognitionTask?
     private var wakeConsumer: Task<Void, Never>?
     private var wakeArmed = false
+    private var wakeFailures = 0             // échecs consécutifs sans transcription → backoff puis abandon
 
     /// True if a recognized partial is mostly Ember's own current speech (imperfect AEC residual),
     /// so we DON'T treat it as the user barging in.
@@ -392,8 +394,17 @@ final class SpeechController: ObservableObject {
 
     func startWakeListening(locale: String) {
         guard authorized, !sessionActive, !listening, !speaking else { return }
+        // On exige la reco SUR L'APPAREIL pour « Ok Ember ». Si la machine/locale ne la supporte pas,
+        // on n'arme pas du tout (sinon la tâche échoue en boucle → drain batterie/CPU). isAvailable
+        // reste vrai même sans modèle on-device → c'est supportsOnDeviceRecognition qui tranche.
+        guard let rec = SFSpeechRecognizer(locale: Locale(identifier: locale)),
+              rec.isAvailable, rec.supportsOnDeviceRecognition else {
+            wakeFailed = true; return
+        }
         localeId = locale
         wakeArmed = true
+        wakeFailures = 0
+        wakeFailed = false
         beginWake()
     }
 
@@ -404,7 +415,8 @@ final class SpeechController: ObservableObject {
 
     private func beginWake() {
         guard wakeArmed, !sessionActive, wakeEngine == nil else { return }
-        guard let rec = SFSpeechRecognizer(locale: Locale(identifier: localeId)), rec.isAvailable else { return }
+        guard let rec = SFSpeechRecognizer(locale: Locale(identifier: localeId)),
+              rec.isAvailable, rec.supportsOnDeviceRecognition else { wakeArmed = false; wakeFailed = true; return }
         let eng = AVAudioEngine()
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
@@ -415,16 +427,23 @@ final class SpeechController: ObservableObject {
         catch { teardownWakeEngine(); return }
         wakeEngine = eng; wakeListening = true
         wakeConsumer = Task { @MainActor in
+            var heard = false
             for await u in stream {
+                if let t = u.text, !t.isEmpty { heard = true }
                 if let t = u.text, Self.isWakePhrase(t) { self.fireWake(); return }
             }
-            // flux terminé (silence / timeout / erreur) → relancer si toujours armé, avec un délai
-            // anti-emballement (si la reco échoue en boucle, on ne sature pas le CPU).
-            if self.wakeArmed && !self.sessionActive {
-                self.teardownWakeEngine()
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                if self.wakeArmed && !self.sessionActive { self.beginWake() }
+            // Flux terminé. Si la reco a produit du texte → elle marche, on relance simplement.
+            // Si AUCUN texte (échec immédiat) → on compte les échecs : backoff exponentiel puis
+            // ABANDON après 3 (jamais de boucle serrée qui draine la batterie hors-ligne).
+            guard self.wakeArmed, !self.sessionActive else { return }
+            self.teardownWakeEngine()
+            if heard { self.wakeFailures = 0 } else { self.wakeFailures += 1 }
+            if self.wakeFailures >= 3 {
+                self.wakeArmed = false; self.wakeFailed = true; return
             }
+            let backoffNs = UInt64(min(8, 1 << self.wakeFailures)) * 200_000_000   // 200ms,400,800… plafonné
+            try? await Task.sleep(nanoseconds: backoffNs)
+            if self.wakeArmed && !self.sessionActive { self.beginWake() }
         }
     }
 
@@ -443,14 +462,13 @@ final class SpeechController: ObservableObject {
         wakeListening = false
     }
 
-    /// Détection tolérante de « Ok Ember » (variantes de transcription Apple).
+    /// Détection de « Ok Ember » : on n'inspecte que la FIN du partiel (le mot-clé vient d'être dit)
+    /// et on EXIGE l'adjacence salutation→nom — sinon « ok … j'ai vu Amber » déclenchait à tort.
     nonisolated static func isWakePhrase(_ raw: String) -> Bool {
         let t = raw.lowercased().folding(options: .diacriticInsensitive, locale: nil)
-        let direct = ["ok ember", "okay ember", "ok amber", "okay amber", "hey ember", "hey amber",
-                      "ok ambre", "okay ambre", "ok embre", "ok hammer", "o k ember", "okember"]
-        if direct.contains(where: { t.contains($0) }) { return true }
-        let greet = t.contains("ok") || t.contains("okay") || t.contains("hey") || t.contains("o.k")
-        let name  = t.contains("ember") || t.contains("amber") || t.contains("ambre") || t.contains("embre")
-        return greet && name
+        let tail = String(t.suffix(40))
+        // \b(ok|okay|hey)\s*(amber|ambre|ember|embre|hammer)\b  — greet collé/espacé au nom, en fin.
+        return tail.range(of: "\\b(ok(ay)?|hey)\\s*(amb(er|re)|emb(er|re)|hammer)\\b",
+                          options: .regularExpression) != nil
     }
 }

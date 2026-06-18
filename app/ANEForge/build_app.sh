@@ -90,8 +90,13 @@ else                                                 # dev-folder fallback
   export ANEFORGE_PYTHON="${ANEFORGE_PYTHON:-$HOME/.ember-engine/venv/bin/python}"
   export ANEFORGE_PYTHONPATH="${ANEFORGE_PYTHONPATH:-$HOME/.ember-engine}"
 fi
-# Use the embedded models (offline) when present.
-if [ -d "$ENG/hfcache" ]; then export HF_HOME="${HF_HOME:-$ENG/hfcache}"; fi
+# Use the embedded models (offline) when present. In a bundled build the model is shipped,
+# so we FORCE offline: no silent Hugging Face download/HEAD at runtime (deploy = 100% local).
+if [ -d "$ENG/hfcache" ]; then
+  export HF_HOME="${HF_HOME:-$ENG/hfcache}"
+  export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+  export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+fi
 exec "$DIR/Ember.bin"
 SHIM
 chmod +x "$APP/Contents/MacOS/Ember" "$APP/Contents/MacOS/Ember.bin"
