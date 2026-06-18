@@ -11,10 +11,6 @@ struct HerView: View {
     @StateObject private var speech = SpeechController()
     @State private var pulse = false
 
-    private var showOverview: Bool {
-        state.agentBusy || state.agentEvents.contains { $0.type == "tool" || $0.type == "gate" }
-    }
-
     var body: some View {
         ZStack {
             RadialGradient(
@@ -23,12 +19,12 @@ struct HerView: View {
                         .init(color: Color(hexv: 0x080404), location: 1)],
                 center: UnitPoint(x: 0.5, y: 0.32), startRadius: 0, endRadius: 900)
             .ignoresSafeArea()
-            HStack(alignment: .top, spacing: 22) {
-                ConversationColumn(speech: speech, onMic: toggleVoice).frame(maxWidth: 640)
-                if showOverview { OverviewCard().frame(width: 286) }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 44).padding(.top, 26).padding(.bottom, 34)
+            // Un seul fil, centré : conversation, travail et éléments générés vivent dans la même
+            // colonne chronologique. Plus de panneau latéral qui décale le fil (§ « pas de saut »).
+            ConversationColumn(speech: speech, onMic: toggleVoice)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 44).padding(.top, 26).padding(.bottom, 34)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
@@ -142,7 +138,7 @@ private struct ConversationColumn: View {
     @ObservedObject var speech: SpeechController
     var onMic: () -> Void
     @State private var draft = ""
-    @State private var workExpanded = true
+    @State private var workExpanded = false   // replié par défaut → on voit l'action en cours, on déplie pour le détail
 
     private var level: CGFloat {
         if speech.listening { return 0.9 }
@@ -157,67 +153,85 @@ private struct ConversationColumn: View {
         return (p.isEmpty || state.herSpeaking || state.isEcho(p)) ? "" : p
     }
 
+    // L'orbe ne montre QUE l'état vivant — jamais la dernière réponse (elle est déjà dans le fil → zéro doublon).
     private var caption: String {
         if speech.listening { return liveText.isEmpty ? "À l'écoute…" : liveText }
-        if let last = state.herConversation.last(where: { $0.role == .ember && !$0.text.isEmpty }) { return last.text }
-        return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Parle-moi, ou confie-moi une tâche."
+        if state.isBusy { return "Je réfléchis…" }
+        if state.agentBusy { return "Je m'en occupe…" }
+        if state.talking || state.herSpeaking { return "…" }
+        if !active {
+            return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Parle-moi, ou confie-moi une tâche."
+        }
+        return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Je t'écoute."
     }
+
+    /// Le fil « vit » dès qu'il y a un échange, un travail ou un document — l'orbe se fait alors compact.
+    private var active: Bool { !state.herConversation.isEmpty || state.generating || state.lastGenerated != nil }
     private var canSend: Bool { !state.agentBusy && !draft.trimmingCharacters(in: .whitespaces).isEmpty }
     private func send() { let t = draft; draft = ""; state.herSend(t) }
 
     var body: some View {
         VStack(spacing: 16) {
-            // Presence — l'orbe EST le bouton (§3) : pendant le travail → interrompre ; sinon → voix.
-            VStack(spacing: 18) {
-                Button {
-                    if state.isBusy || state.agentBusy || state.talking { state.interruptHer() }
-                    else { onMic() }
-                } label: {
-                    EmberOrb(mode: state.orbMode, size: 88).frame(width: 88, height: 88)
-                }
-                .buttonStyle(.plain)
-                .help(state.isBusy || state.agentBusy || state.talking ? "Interrompre" : "Parler (mains libres)")
-                VoiceWave(level: level).frame(width: 320, height: 70)
-                Text(caption)
-                    .font(.emberSerif(18, weight: .regular).italic())
-                    .foregroundStyle(Color(hexv: 0xd8b9a6))
-                    .multilineTextAlignment(.center).lineSpacing(18 * 0.4)
-                    .frame(maxWidth: 460).lineLimit(3)
-                    .animation(.easeInOut(duration: 0.3), value: caption)
-            }
-            .padding(.top, 8)
-
-            transcript
-
-            genBanner
+            presence
+            thread          // le fil unique : échange + travail inline + éléments générés
             input
             footer
         }
     }
 
-    // « Généré » — progression puis le document généré (ouvrable), dans Her.
-    @ViewBuilder private var genBanner: some View {
-        if state.generating || state.lastGenerated != nil {
-            HStack(spacing: 10) {
-                if state.generating {
-                    Image(systemName: "doc.badge.gearshape").font(.system(size: 13)).foregroundStyle(Color(hexv: 0xffb877))
-                    Text("Génération du document… (local)").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xe8c4a8))
-                    Spacer(minLength: 0)
-                } else if let doc = state.lastGenerated {
-                    Image(systemName: "doc.text.fill").font(.system(size: 13)).foregroundStyle(Color(hexv: 0x9fd9ad))
-                    Text(doc.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hexv: 0xecd9c9)).lineLimit(1)
-                    Spacer(minLength: 0)
-                    Button { state.openGenerated() } label: { genPill("Ouvrir") }.buttonStyle(.plain)
-                    Button { state.revealGenerated() } label: { genPill("Révéler") }.buttonStyle(.plain)
-                    Button { state.lastGenerated = nil } label: {
-                        Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color(hexv: 0x8a7d75)).frame(width: 20, height: 20)
-                    }.buttonStyle(.plain)
-                }
+    // Présence — l'orbe EST le bouton (§3) : travail → interrompre ; sinon → voix.
+    // Grand au repos ; compact dès que le fil vit, pour lui laisser la place (présence qui s'efface).
+    private var presence: some View {
+        let orbSize: CGFloat = active ? 54 : 88
+        return VStack(spacing: active ? 10 : 18) {
+            Button {
+                if state.isBusy || state.agentBusy || state.talking { state.interruptHer() }
+                else { onMic() }
+            } label: {
+                EmberOrb(mode: state.orbMode, size: orbSize).frame(width: orbSize, height: orbSize)
             }
-            .padding(.vertical, 9).padding(.horizontal, 13)
-            .frame(maxWidth: 560)
-            .background(RoundedRectangle(cornerRadius: 13).fill(Color(hexv: 0x5fd07a).opacity(0.08)))
-            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color(hexv: 0x5fd07a).opacity(0.22), lineWidth: 1))
+            .buttonStyle(.plain)
+            .help(state.isBusy || state.agentBusy || state.talking ? "Interrompre" : "Parler (mains libres)")
+            VoiceWave(level: level).frame(width: active ? 240 : 320, height: active ? 44 : 70)
+            Text(caption)
+                .font(.emberSerif(active ? 15 : 18, weight: .regular).italic())
+                .foregroundStyle(Color(hexv: 0xd8b9a6))
+                .multilineTextAlignment(.center).lineSpacing((active ? 15 : 18) * 0.4)
+                .frame(maxWidth: 460).lineLimit(2)
+                .animation(.easeInOut(duration: 0.3), value: caption)
+        }
+        .padding(.top, active ? 2 : 8)
+        .animation(.easeInOut(duration: 0.35), value: active)
+    }
+
+    // « Généré » — le document, posé DANS le fil (là où il a été produit), ouvrable.
+    @ViewBuilder private var generatedCard: some View {
+        if state.generating || state.lastGenerated != nil {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("EMBER · GÉNÉRÉ").font(.system(size: 9.5, weight: .medium)).tracking(0.8)
+                    .foregroundStyle(Color(hexv: 0x8a9b8e))
+                HStack(spacing: 10) {
+                    if state.generating {
+                        Image(systemName: "doc.badge.gearshape").font(.system(size: 13)).foregroundStyle(Color(hexv: 0xffb877))
+                        Text("Génération du document… (local)").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xe8c4a8))
+                        Spacer(minLength: 0)
+                    } else if let doc = state.lastGenerated {
+                        Image(systemName: "doc.text.fill").font(.system(size: 14)).foregroundStyle(Color(hexv: 0x9fd9ad))
+                        Text(doc.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xecd9c9)).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Button { state.openGenerated() } label: { genPill("Ouvrir") }.buttonStyle(.plain)
+                        Button { state.revealGenerated() } label: { genPill("Révéler") }.buttonStyle(.plain)
+                        Button { state.lastGenerated = nil } label: {
+                            Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color(hexv: 0x8a7d75)).frame(width: 20, height: 20)
+                        }.buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 9).padding(.horizontal, 13)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 13).fill(Color(hexv: 0x5fd07a).opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color(hexv: 0x5fd07a).opacity(0.22), lineWidth: 1))
+            }
+            .padding(.top, 2)
         }
     }
     private func genPill(_ s: String) -> some View {
@@ -232,9 +246,10 @@ private struct ConversationColumn: View {
         Task { await state.generateDocument(t) }
     }
 
-    @ViewBuilder private var transcript: some View {
-        if state.herConversation.isEmpty {
-            Text("Dis « Bonjour » ou pose-moi une question — je te réponds à voix haute. Confie-moi une tâche (« liste mes fichiers ») et tu verras le travail se dérouler ici, sous ta demande.")
+    // Le fil unique : un seul flux chronologique (pas de séparateur « — L'ÉCHANGE — »).
+    @ViewBuilder private var thread: some View {
+        if !active {
+            Text("Dis « Bonjour » ou pose-moi une question — je te réponds à voix haute. Confie-moi une tâche (« range mes captures ») et tu verras le travail se dérouler ici, puis ce que j'ai généré.")
                 .font(.system(size: 12.5)).foregroundStyle(Color.emberMuted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -243,12 +258,11 @@ private struct ConversationColumn: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("— L'ÉCHANGE —").font(.system(size: 10, weight: .medium)).tracking(1.4)
-                            .foregroundStyle(Color(hexv: 0x8a7a70)).frame(maxWidth: .infinity, alignment: .center)
                         ForEach(state.herConversation) { turn in
                             bubble(turn)
                             if turn.working { WorkInline(expanded: $workExpanded) }
                         }
+                        generatedCard          // l'élément généré, dans le fil
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(.horizontal, 2)
@@ -256,6 +270,8 @@ private struct ConversationColumn: View {
                 .frame(maxHeight: .infinity)
                 .onChange(of: state.herConversation) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: state.agentEvents) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: state.generating) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: state.lastGenerated?.title) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
         }
     }
@@ -361,6 +377,14 @@ private struct WorkInline: View {
     private var steps: Int { state.agentEvents.filter { ["tool", "observation", "plan"].contains($0.type) }.count }
     private var open: Bool { expanded || state.agentPendingGate != nil }
 
+    // Dernière action lisible → suivi vivant visible sans déplier (la « vue d'ensemble » dans le fil).
+    private var liveSummary: String? {
+        guard let e = state.agentEvents.last(where: {
+            ["observation", "tool", "plan", "error"].contains($0.type) && !($0.text.isEmpty && $0.detail.isEmpty)
+        }) else { return nil }
+        return e.text.isEmpty ? e.detail : e.text
+    }
+
     var body: some View {
         if !state.agentEvents.isEmpty {
             HStack(alignment: .top, spacing: 0) {
@@ -386,105 +410,24 @@ private struct WorkInline: View {
                                         onAlways: { state.resolveAgentGate(true, remember: true) },
                                         onDeny: { state.resolveAgentGate(false) })
                         }
+                        // Honnêteté §2.4 : le travail tourne sur DeepSeek (cloud) — repris ici depuis la
+                        // « Vue d'ensemble » (supprimée au profit du fil unique).
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "cloud").font(.system(size: 10)).foregroundStyle(Color(hexv: 0xc9a98f))
+                            Text("Travail piloté par DeepSeek (cloud) · le plan et les résultats y transitent")
+                                .font(.system(size: 10)).foregroundStyle(Color(hexv: 0xc9a98f))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 2)
+                    } else if let s = liveSummary {
+                        Text(s).font(.system(size: 11.5)).foregroundStyle(Color(hexv: 0xbfae9f))
+                            .lineLimit(1).truncationMode(.tail)
                     }
                 }
                 .padding(.leading, 11)
                 Spacer(minLength: 40)
             }
             .padding(.vertical, 2)
-        }
-    }
-}
-
-// MARK: - Synthetic overview (à côté, quand le travail est conséquent)
-
-private struct OverviewCard: View {
-    @EnvironmentObject var state: AppState
-
-    private var done: Int { state.agentEvents.filter { $0.type == "observation" }.count }
-    private var planned: Int { max(done, state.agentEvents.filter { $0.type == "tool" }.count) }
-    private var tools: [AgentEvent] { state.agentEvents.filter { $0.type == "tool" } }
-    private var status: (String, Color) {
-        if state.agentPendingGate != nil { return ("Permission requise", Color(hexv: 0xffd089)) }
-        if state.agentBusy { return ("En cours…", Color(hexv: 0xffa050)) }
-        return ("Terminé", Color(hexv: 0x7fd095))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 7) {
-                Image(systemName: "rectangle.3.group").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xc79a82))
-                Text("Vue d'ensemble").font(.system(size: 13, weight: .bold)).foregroundStyle(Color(hexv: 0xf0ddcf))
-                Spacer()
-            }
-            HStack(spacing: 8) {
-                Circle().fill(status.1).frame(width: 7, height: 7)
-                Text(status.0).font(.system(size: 12, weight: .medium)).foregroundStyle(status.1)
-                Spacer()
-                Text("\(done)/\(max(planned, 1)) étapes").font(.system(size: 11)).foregroundStyle(Color.emberMuted)
-            }
-            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
-            if tools.isEmpty {
-                Text("La synthèse des étapes s'affiche ici dès qu'Ember agit.")
-                    .font(.system(size: 11)).foregroundStyle(Color.emberMuted).fixedSize(horizontal: false, vertical: true)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(tools.enumerated()), id: \.element.id) { idx, e in
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: idx < done ? "checkmark.circle.fill" : "circle.dotted")
-                                .font(.system(size: 12)).foregroundStyle(idx < done ? Color(hexv: 0x7fd095) : Color(hexv: 0x9a8d84))
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(Self.label(e.tool)).font(.system(size: 12, weight: .medium)).foregroundStyle(Color(hexv: 0xe8d4c6))
-                                if !e.detail.isEmpty {
-                                    Text(e.detail).font(.system(size: 10.5)).foregroundStyle(Color.emberMuted).lineLimit(1)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
-            HStack(alignment: .top, spacing: 7) {
-                Image(systemName: "cloud").font(.system(size: 11)).foregroundStyle(Color(hexv: 0xc9a98f))
-                // Honnêteté §2.4 : l'agent de travail tourne sur DeepSeek — le plan ET les
-                // résultats d'outils y transitent (≠ 100% local, contrairement à la conversation).
-                Text("Travail piloté par DeepSeek (cloud) · le plan et les résultats y transitent")
-                    .font(.system(size: 10)).foregroundStyle(Color(hexv: 0xc9a98f))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(18).frame(maxHeight: 440, alignment: .top).glassCard(corner: 20)
-    }
-
-    static func label(_ tool: String) -> String {
-        switch tool {
-        case "list_facts":       return "Mémoire"
-        case "search_memory":    return "Recherche mémoire"
-        case "list_dir":         return "Dossier"
-        case "read_file":        return "Lecture fichier"
-        case "write_note":       return "Note / brouillon"
-        case "open_app":         return "App"
-        case "open_url":         return "Lien"
-        case "reveal_in_finder": return "Finder"
-        case "spotlight_search": return "Recherche fichiers"
-        case "search_text":      return "Recherche texte"
-        case "read_clipboard":   return "Presse-papiers"
-        case "notify":           return "Notification"
-        case "read_notes":       return "Notes"
-        case "read_reminders":   return "Rappels"
-        case "read_calendar":    return "Agenda"
-        case "write_clipboard":  return "Presse-papiers"
-        case "create_note":      return "Note"
-        case "create_reminder":  return "Rappel"
-        case "create_event":     return "Événement"
-        case "move_file":        return "Déplacement"
-        case "copy_file":        return "Copie"
-        case "music_control":    return "Musique"
-        case "draft_mail":       return "Brouillon mail"
-        case "run_shortcut":     return "Raccourci"
-        default:                 return tool.isEmpty ? "Étape" : tool
         }
     }
 }
