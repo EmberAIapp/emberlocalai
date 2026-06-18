@@ -28,10 +28,9 @@ struct HerView: View {
                 if showOverview { OverviewCard().frame(width: 286) }
             }
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 44).padding(.top, 84).padding(.bottom, 34)
+            .padding(.horizontal, 44).padding(.top, 26).padding(.bottom, 34)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .top) { topBar }
         .onAppear {
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
             speech.requestAuth()
@@ -99,27 +98,6 @@ struct HerView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack {
-            HStack(spacing: 10) {
-                Circle().fill(Color(hexv: 0xff7a3a)).frame(width: 7, height: 7)
-                    .shadow(color: Color(hexv: 0xff7a3a), radius: 5)
-                    .scaleEffect(pulse ? 1.3 : 0.9).opacity(pulse ? 1.0 : 0.5)
-                Text("MODE HER · MAINS LIBRES").font(.system(size: 12, weight: .bold)).tracking(1)
-                    .foregroundStyle(Color(hexv: 0xc79a82))
-            }
-            Spacer()
-            Button(action: { speech.stopSpeaking(); state.exitHer() }) {
-                Text("Quitter ✕").font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hexv: 0xd8c6ba))
-                    .padding(.vertical, 8).padding(.horizontal, 16)
-                    .background(RoundedRectangle(cornerRadius: 22).fill(Color.white.opacity(0.06)))
-                    .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.top, 22).padding(.horizontal, 30)
-    }
 }
 
 // MARK: - Animated sinusoidal signal, in the Ember colour theme
@@ -204,9 +182,47 @@ private struct ConversationColumn: View {
 
             transcript
 
+            genBanner
             input
             footer
         }
+    }
+
+    // « Généré » — progression puis le document généré (ouvrable), dans Her.
+    @ViewBuilder private var genBanner: some View {
+        if state.generating || state.lastGenerated != nil {
+            HStack(spacing: 10) {
+                if state.generating {
+                    Image(systemName: "doc.badge.gearshape").font(.system(size: 13)).foregroundStyle(Color(hexv: 0xffb877))
+                    Text("Génération du document… (local)").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xe8c4a8))
+                    Spacer(minLength: 0)
+                } else if let doc = state.lastGenerated {
+                    Image(systemName: "doc.text.fill").font(.system(size: 13)).foregroundStyle(Color(hexv: 0x9fd9ad))
+                    Text(doc.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hexv: 0xecd9c9)).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button { state.openGenerated() } label: { genPill("Ouvrir") }.buttonStyle(.plain)
+                    Button { state.revealGenerated() } label: { genPill("Révéler") }.buttonStyle(.plain)
+                    Button { state.lastGenerated = nil } label: {
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color(hexv: 0x8a7d75)).frame(width: 20, height: 20)
+                    }.buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 9).padding(.horizontal, 13)
+            .frame(maxWidth: 560)
+            .background(RoundedRectangle(cornerRadius: 13).fill(Color(hexv: 0x5fd07a).opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color(hexv: 0x5fd07a).opacity(0.22), lineWidth: 1))
+        }
+    }
+    private func genPill(_ s: String) -> some View {
+        Text(s).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color(hexv: 0x9fd9ad))
+            .padding(.vertical, 4).padding(.horizontal, 11)
+            .background(Capsule().fill(Color(hexv: 0x5fd07a).opacity(0.12)))
+    }
+    private func generateDoc() {
+        let t = draft.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty, !state.generating else { return }
+        draft = ""
+        Task { await state.generateDocument(t) }
     }
 
     @ViewBuilder private var transcript: some View {
@@ -276,6 +292,15 @@ private struct ConversationColumn: View {
                        : (state.voiceSession ? "En conversation — appuie pour couper" : "Parle ou écris à Ember…"), text: $draft)
                 .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
                 .onSubmit { if canSend { send() } }
+
+            // 📄 générer un VRAI document local à partir du brief
+            Button(action: generateDoc) {
+                Image(systemName: state.generating ? "doc.badge.gearshape" : "doc.badge.plus")
+                    .font(.system(size: 17)).foregroundStyle(Color(hexv: 0xc79a82))
+            }
+            .buttonStyle(.plain)
+            .disabled(state.generating || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            .help("Générer un document (local)")
 
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill").font(.system(size: 22))

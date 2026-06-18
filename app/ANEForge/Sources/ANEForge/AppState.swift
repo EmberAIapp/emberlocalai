@@ -33,7 +33,7 @@ struct HerTurn: Identifiable, Equatable {
 struct SpeakRequest: Equatable { let id = UUID(); var text: String; var lang: String }
 
 /// Which primary screen is showing in the main content area.
-enum MainView { case home, ingest, memory, settings }
+enum MainView { case her, ingest, memory, settings }   // Her = la base ; les autres = la coulisse
 
 /// Central observable state. Owns the Engine and exposes UI-friendly @Published
 /// values. All engine work is async; UI updates hop back to the main actor.
@@ -58,9 +58,8 @@ final class AppState: ObservableObject {
         Task { @MainActor in try? await Task.sleep(nanoseconds: 1_400_000_000); orbError = false }
     }
 
-    // Navigation / overlays
-    @Published var view: MainView = .home
-    @Published var isHer = false
+    // Navigation : Her est l'écran de base ; Apprendre/Mémoire/Réglages = la coulisse.
+    @Published var view: MainView = .her
     @Published var onboardStep = 0          // 0 = closed, 1…3 = onboarding pages
     @Published var switcherOpen = false
 
@@ -277,18 +276,15 @@ final class AppState: ObservableObject {
     func replayOnboard() { onboardStep = 1 }
     func skipOnboard() { onboardStep = 0 }
     func onboardNext() {
-        if onboardStep >= 3 { onboardStep = 0; view = .home }
+        if onboardStep >= 3 { onboardStep = 0; view = .her }
         else { onboardStep += 1 }
     }
 
     // MARK: - Navigation
 
     func go(_ v: MainView) { view = v; switcherOpen = false }
-    func enterHer() {
-        isHer = true; switcherOpen = false
-        agentEvents = []; agentPendingGate = nil; agentBusy = false
-        herConversation = []; herListening = false; herSpeaking = false; herSpeak = nil; voiceSession = false
-    }
+    /// Retour à Her (la base) — NE remet PAS à zéro la conversation (elle persiste).
+    func enterHer() { view = .her; switcherOpen = false }
 
     // MARK: - Mode Her conversation (§4.E): chat by default, auto-route to the work agent
 
@@ -375,7 +371,8 @@ final class AppState: ObservableObject {
     }
 
     func stopAgentTask() { agentTask?.cancel(); agentBusy = false; agentPendingGate = nil }
-    func exitHer() { isHer = false; voiceSession = false }
+    /// Quitter une vue de coulisse → revenir à Her ; coupe la session vocale.
+    func leaveToHer() { view = .her; voiceSession = false }
 
     /// Read a user-selected/dropped file IN THE APP (which holds the access grant),
     /// stage it to a temp path the engine subprocess can read, then learn from it.

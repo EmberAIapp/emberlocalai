@@ -16,21 +16,13 @@ struct ContentView: View {
                 TopBar(showingCreate: $showingCreate)
                 // title bar border-bottom: 1px rgba(255,255,255,0.06)
                 Divider().overlay(.white.opacity(0.06))
-                HStack(spacing: 0) {
-                    Rail()
-                    // rail border-right: 1px rgba(255,255,255,0.05)
-                    Divider().overlay(.white.opacity(0.05))
-                    ZStack {
-                        content
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ZStack {
+                    content   // Her (base) OU une coulisse (Apprendre/Mémoire/Réglages)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
             // Fullscreen overlays
-            if state.isHer {
-                HerView().transition(.opacity)
-            }
             if state.onboardOpen {
                 OnboardingView().transition(.opacity)
             }
@@ -38,7 +30,7 @@ struct ContentView: View {
                 BootOverlay().transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.28), value: state.isHer)
+        .animation(.easeInOut(duration: 0.25), value: state.view)
         .animation(.easeInOut(duration: 0.28), value: state.onboardStep)
         .animation(.easeInOut(duration: 0.3), value: state.booting)
         .preferredColorScheme(.dark)
@@ -51,8 +43,8 @@ struct ContentView: View {
 
     @ViewBuilder private var content: some View {
         switch state.view {
-        case .home:     HomeView()
-        case .ingest:   IngestView()
+        case .her:      HerView()                 // l'écran de base
+        case .ingest:   IngestView()              // coulisse
         case .memory:   MemoryView()
         case .settings: SettingsScreen()
         }
@@ -70,13 +62,31 @@ struct TopBar: View {
 
     var body: some View {
         ZStack {
-            // Centered IA switcher (the design's flex:1 center container)
+            // Centre : le nom de l'IA (sélecteur) — « le nom de l'IA au centre ».
             switcher
-            HStack {
+            HStack(spacing: 10) {
+                // À gauche : revenir à Her quand on est en coulisse (remplace « Quitter »).
+                if state.view != .her {
+                    Button { state.go(.her) } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                            Text("Ember").font(.system(size: 12.5, weight: .semibold))
+                        }
+                        .foregroundStyle(Color(hexv: 0xd8c6ba))
+                        .padding(.vertical, 5).padding(.horizontal, 11)
+                        .background(Capsule().fill(.white.opacity(0.06)))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain).help("Revenir à Ember")
+                }
                 Spacer()
+                // À droite : la coulisse — Apprendre · Mémoire · Réglages.
+                NavTab(icon: "arrow.up.to.line", label: "Apprendre", target: .ingest)
+                NavTab(icon: "brain", label: "Mémoire", target: .memory)
+                NavTab(icon: "gearshape", label: "Réglages", target: .settings)
                 LocalPill()
             }
-            .padding(.trailing, 18)
+            .padding(.horizontal, 16)
         }
         .frame(height: 48)
         .padding(.leading, 78)   // leave room for the native traffic-light controls
@@ -212,63 +222,30 @@ struct TopBar: View {
     }
 }
 
-// MARK: - Icon rail
-// Spec: width 84, flex column, align center, padding 18px 0, gap 6;
-// bg rgba(20,13,11,0.5) blur(24) saturate(160%); border-right 1px rgba(255,255,255,0.05).
-
-struct Rail: View {
+// MARK: - Nav tab (top-right : Apprendre · Mémoire · Réglages → coulisse)
+struct NavTab: View {
     @EnvironmentObject var state: AppState
+    let icon: String
+    let label: String
+    let target: MainView
 
     var body: some View {
-        VStack(spacing: 6) {
-            // brandOrb 30, margin-bottom 14
-            EmberOrb(mode: state.orbMode, size: 30).frame(width: 30, height: 30)
-                .padding(.bottom, 14)
-
-            // nav buttons (navStyle): width 64, gap 5, padding 11px 0, radius 15
-            RailButton(system: "house", label: "Accueil", active: state.view == .home) { state.go(.home) }
-            RailButton(system: "arrow.up.to.line", label: "Apprendre", active: state.view == .ingest) { state.go(.ingest) }
-            RailButton(system: "brain", label: "Mémoire", active: state.view == .memory) { state.go(.memory) }
-            RailButton(system: "gearshape", label: "Réglages", active: state.view == .settings) { state.go(.settings) }
-
-            Spacer()   // flex:1
-
-            // Mode Her — width 64, gap 5, padding 12px 0, radius 16,
-            // border rgba(255,150,90,0.3), bg linear-gradient(160deg, rgba(255,120,60,0.18), rgba(255,90,40,0.06)),
-            // color #ffcba6; icon 22; label 9.5px 700 letter-spacing 0.2
-            Button { state.enterHer() } label: {
-                VStack(spacing: 5) {
-                    Image(systemName: "mic").font(.system(size: 22, weight: .regular))
-                    Text("Mode Her").font(.system(size: 9.5, weight: .bold)).tracking(0.2)
-                }
-                .foregroundStyle(Color(hexv: 0xffcba6))
-                .frame(width: 64).padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(LinearGradient(colors: [Color(hexv: 0xff783c).opacity(0.18),
-                                                      Color(hexv: 0xff5a28).opacity(0.06)],
-                                             startPoint: .top, endPoint: .bottom))
-                        .overlay(RoundedRectangle(cornerRadius: 16)
-                            .strokeBorder(Color(hexv: 0xff965a).opacity(0.3), lineWidth: 1))
-                        .shadow(color: Color(hexv: 0xff5a28).opacity(0.5), radius: 10, y: 6)
-                )
+        let active = state.view == target
+        Button { state.go(target) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 12, weight: .medium))
+                Text(LocalizedStringKey(label)).font(.system(size: 12.5, weight: active ? .semibold : .medium))
             }
-            .buttonStyle(.plain)
-
-            // Replay onboarding — margin-top 8, width 34 height 34, radius 10, color #7c6f67, icon 18
-            Button { state.replayOnboard() } label: {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(Color(hexv: 0x7c6f67))
-                    .frame(width: 34, height: 34)
-            }
-            .buttonStyle(.plain)
-            .help("Rejouer l'onboarding")
-            .padding(.top, 8)
+            .foregroundStyle(active ? Color(hexv: 0x1a0f0a) : Color(hexv: 0xc9bbb1))
+            .padding(.vertical, 5).padding(.horizontal, 11)
+            .background(
+                Capsule().fill(active
+                    ? AnyShapeStyle(LinearGradient(colors: [Color(hexv: 0xffb877), Color(hexv: 0xff7a3a)],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing))
+                    : AnyShapeStyle(Color.white.opacity(0.05))))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(active ? 0 : 0.08), lineWidth: 1))
         }
-        .padding(.vertical, 18)
-        .frame(width: 84)
-        .background(.ultraThinMaterial)
+        .buttonStyle(.plain)
     }
 }
 
