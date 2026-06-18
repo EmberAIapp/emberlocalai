@@ -214,7 +214,7 @@
     background: radial-gradient(120% 120% at 50% 30%, rgba(255,122,60,.08), transparent 70%), linear-gradient(160deg, var(--bg-2), rgba(18,13,10,.2));
     border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.45);
   }
-  .pillar-art img { width: 100%; display: block; }
+  .pillar-art img { width: 100%; height: auto; display: block; }
   .pillar-art.illus { aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; }
   .pillar-art.illus svg { width: 82%; height: auto; }
   .pillar-text .section-tag { margin-bottom: 14px; }
@@ -368,36 +368,39 @@
         </div>
       </div>
 
-      <!-- Pillar 2 — Editable memory (illustration) -->
+      <!-- Pillar 2 — Editable memory (real screenshot) -->
       <div class="pillar flip reveal">
-        <div class="pillar-art illus">
-          <svg viewBox="0 0 400 300" role="img" aria-label="A structured, editable memory of facts around an ember core">
-            <defs>
-              <radialGradient id="emb3" cx="50%" cy="50%" r="55%">
-                <stop offset="0%" stop-color="#fff4e6"/><stop offset="40%" stop-color="#ffb061"/>
-                <stop offset="100%" stop-color="#e8431a"/>
-              </radialGradient>
-            </defs>
-            <g stroke="#ff7a3c" stroke-opacity="0.3" stroke-width="1.5">
-              <path d="M200 150 L96 70"/><path d="M200 150 L300 66"/>
-              <path d="M200 150 L78 188"/><path d="M200 150 L312 196"/>
-              <path d="M200 150 L172 244"/>
-            </g>
-            <g font-family="Hanken Grotesk, sans-serif" font-size="11">
-              <g class="pulse-a"><rect x="32" y="52" width="128" height="32" rx="8" fill="#160f0b" stroke="#ff7a3c" stroke-opacity="0.4"/><text x="46" y="72" fill="#a99c8d">Name · Maya</text><text x="146" y="72" fill="#6f6356">✕</text></g>
-              <g class="pulse-b"><rect x="240" y="48" width="132" height="32" rx="8" fill="#160f0b" stroke="#ff7a3c" stroke-opacity="0.4"/><text x="254" y="68" fill="#a99c8d">City · Lisbon</text><text x="358" y="68" fill="#6f6356">✕</text></g>
-              <g class="pulse-c"><rect x="16" y="172" width="138" height="32" rx="8" fill="#160f0b" stroke="#ff7a3c" stroke-opacity="0.4"/><text x="30" y="192" fill="#a99c8d">Loves · trail runs</text><text x="140" y="192" fill="#6f6356">✕</text></g>
-              <g class="pulse-a"><rect x="244" y="180" width="140" height="32" rx="8" fill="#160f0b" stroke="#ff7a3c" stroke-opacity="0.4"/><text x="258" y="200" fill="#a99c8d">Job · product designer</text></g>
-              <g class="pulse-b"><rect x="108" y="232" width="132" height="32" rx="8" fill="#160f0b" stroke="#ff7a3c" stroke-opacity="0.4"/><text x="122" y="252" fill="#a99c8d">Learning · piano</text><text x="226" y="252" fill="#6f6356">✕</text></g>
-            </g>
-            <circle class="glow-core" cx="200" cy="150" r="34" fill="url(#emb3)"/>
-            <circle cx="200" cy="150" r="10" fill="#fff4e6"/>
-          </svg>
+        <div class="pillar-art">
+          <img src="assets/shots/03-memory.png" width="2880" height="1786" alt="Ember's Memory screen — editable facts (name, city, job, tastes) and a locally-synthesized profile you can read, edit or delete." />
         </div>
         <div class="pillar-text">
           <div class="section-tag">Editable memory</div>
           <h2>It remembers. <em>You decide.</em></h2>
           <p>Ember files what it learns about you as clear, plain-language facts — that you can read, edit or delete. Your AI knows you, and you keep your hand on everything it knows.</p>
+        </div>
+      </div>
+
+      <!-- Pillar 3 — Learn (real screenshot) -->
+      <div class="pillar reveal">
+        <div class="pillar-art">
+          <img src="assets/shots/04-learn.png" width="2880" height="1786" alt="Ember's Learn screen — drop in files and folders or connect Apple Notes; everything stays on your Mac." />
+        </div>
+        <div class="pillar-text">
+          <div class="section-tag">Learn from your data</div>
+          <h2>Teach it what <em>matters.</em></h2>
+          <p>Drop in your notes, files and folders, or connect Apple Notes. Ember extracts the facts on-device — open it up to your whole Mac, or just the folders you choose.</p>
+        </div>
+      </div>
+
+      <!-- Pillar 4 — Settings (real screenshot) -->
+      <div class="pillar flip reveal">
+        <div class="pillar-art">
+          <img src="assets/shots/05-settings.png" width="2880" height="1786" alt="Ember's Settings — pick a local model, set the persona, and grant or revoke each permission." />
+        </div>
+        <div class="pillar-text">
+          <div class="section-tag">Yours to tune</div>
+          <h2>Plain language. <em>No jargon.</em></h2>
+          <p>Pick a local model, shape how Ember behaves, and grant or revoke each permission — granular and reversible. No telemetry, no dark patterns.</p>
         </div>
       </div>
     </div>
