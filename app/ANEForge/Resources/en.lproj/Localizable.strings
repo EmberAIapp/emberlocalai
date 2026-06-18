@@ -155,3 +155,8 @@
 "Tout mon Mac" = "My whole Mac";
 "Choisir des dossiers" = "Pick folders";
 "Donner l'accès complet au disque (Réglages système)" = "Grant Full Disk Access (System Settings)";
+
+/* added for the English/global launch */
+"Historique" = "History";
+"Erreur" = "Error";
+"Un souci est survenu." = "Something went wrong.";

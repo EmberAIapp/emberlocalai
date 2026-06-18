@@ -19,34 +19,35 @@ enum DesignData {
     }
 
     static let modelCatalog: [ModelChoice] = [
-        .init(name: "Léger", desc: "Qwen2.5 0.5B — rapide, petites configs.", ram: "8 Go", speed: "rapide",
+        .init(name: "Light", desc: "Qwen2.5 0.5B — fast, small setups.", ram: "8 GB", speed: "fast",
               modelId: "mlx-community/Qwen2.5-0.5B-Instruct-4bit"),
-        .init(name: "Équilibré", desc: "Qwen2.5 1.5B — fluide & multilingue. Recommandé.", ram: "16 Go", speed: "56 tok/s",
+        .init(name: "Balanced", desc: "Qwen2.5 1.5B — smooth & multilingual. Recommended.", ram: "16 GB", speed: "56 tok/s",
               modelId: "mlx-community/Qwen2.5-1.5B-Instruct-4bit"),
-        .init(name: "Puissant", desc: "Qwen2.5 3B — réponses plus riches.", ram: "24 Go+", speed: "34 tok/s",
+        .init(name: "Powerful", desc: "Qwen2.5 3B — richer answers.", ram: "24 GB+", speed: "34 tok/s",
               modelId: "mlx-community/Qwen2.5-3B-Instruct-4bit"),
     ]
 
-    static let personaOptions = ["Calme", "Vif", "Professionnel", "Chaleureux"]
+    static let personaOptions = ["Calm", "Lively", "Professional", "Warm"]
 
     struct Permission: Identifiable {
         let id = UUID()
-        let key: String
+        let key: String          // internal scope id — MUST match agent.py sensitive scopes
+        let label: String        // English display title
         let icon: String
         let desc: String
     }
 
     // Keys MATCH the agent's real SENSITIVE scopes (agent.py) → un toggle OFF bloque vraiment
-    // le périmètre côté agent (granulaire + révocable, §4.E/§7).
+    // le périmètre côté agent (granulaire + révocable, §4.E/§7). `label` = displayed title.
     static let permissions: [Permission] = [
-        .init(key: "Fichiers", icon: "📂", desc: "Lire et organiser tes fichiers"),
-        .init(key: "Apps", icon: "🪟", desc: "Ouvrir et piloter des apps"),
-        .init(key: "Notes", icon: "🗒️", desc: "Lire et créer des notes"),
-        .init(key: "Rappels", icon: "✅", desc: "Lire et créer des rappels"),
-        .init(key: "Agenda", icon: "📅", desc: "Lire et créer des événements"),
-        .init(key: "Mémoire", icon: "🧠", desc: "Lire ta mémoire personnelle"),
-        .init(key: "Mail", icon: "✉️", desc: "Préparer des brouillons (jamais envoyer)"),
-        .init(key: "Raccourcis", icon: "⚡", desc: "Lancer des raccourcis Apple"),
+        .init(key: "Fichiers",   label: "Files",     icon: "📂", desc: "Read and organize your files"),
+        .init(key: "Apps",       label: "Apps",      icon: "🪟", desc: "Open and control apps"),
+        .init(key: "Notes",      label: "Notes",     icon: "🗒️", desc: "Read and create notes"),
+        .init(key: "Rappels",    label: "Reminders", icon: "✅", desc: "Read and create reminders"),
+        .init(key: "Agenda",     label: "Calendar",  icon: "📅", desc: "Read and create events"),
+        .init(key: "Mémoire",    label: "Memory",    icon: "🧠", desc: "Read your personal memory"),
+        .init(key: "Mail",       label: "Mail",      icon: "✉️", desc: "Prepare drafts (never send)"),
+        .init(key: "Raccourcis", label: "Shortcuts", icon: "⚡", desc: "Run Apple Shortcuts"),
     ]
 
     static let defaultPermissions: [String: Bool] = [
@@ -56,9 +57,9 @@ enum DesignData {
 
     // Real, neutral starting points (no fictional café scenario) — work for anyone.
     static let homeSuggestions = [
-        "Qu'est-ce que tu sais de moi ?",
-        "Présente-toi en une phrase",
-        "Aide-moi à organiser ma journée",
-        "Apprends quelque chose sur moi",
+        "What do you know about me?",
+        "Introduce yourself in one sentence",
+        "Help me organize my day",
+        "Learn something about me",
     ]
 }

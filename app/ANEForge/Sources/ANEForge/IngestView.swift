@@ -15,7 +15,7 @@ struct IngestView: View {
                     .padding(.top, 22)
 
                 // CONNECTEURS LOCAUX · LECTURE SEULE — Apple Notes + tes propres dossiers (réels).
-                SectionLabel("Connecteurs locaux · lecture seule")
+                SectionLabel("Local connectors · read-only")
                     .padding(.top, 30)
                     .padding(.bottom, 14)
                 VStack(spacing: 10) {
@@ -61,8 +61,8 @@ struct IngestView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Connecter"
-        panel.message = "Choisis un dossier — Ember en apprendra les fichiers .txt/.md/.pdf, en local."
+        panel.prompt = "Connect"
+        panel.message = "Choose a folder — Ember will learn its .txt/.md/.pdf files, locally."
         if panel.runModal() == .OK, let url = panel.url {
             state.connectFolder(url)
         }
@@ -83,8 +83,8 @@ struct IngestView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
-        panel.prompt = "Apprendre de tout ça"
-        panel.message = "Choisis les dossiers qu'Ember peut apprendre (Documents, Bureau, tes projets…). Tout reste en local."
+        panel.prompt = "Learn from all this"
+        panel.message = "Choose the folders Ember can learn from (Documents, Desktop, your projects…). Everything stays local."
         if panel.runModal() == .OK, !panel.urls.isEmpty {
             state.connectFolders(panel.urls, full: true)
         }
@@ -95,7 +95,7 @@ struct IngestView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x9fd9ad))
-                Text("Voici ce qu'Ember vient de retenir")
+                Text("Here's what Ember just remembered")
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xe8c4a8))
                 Spacer(minLength: 0)
@@ -109,7 +109,7 @@ struct IngestView: View {
                 }
             }
             if state.lastLearned.count > 8 {
-                Text("… et \(state.lastLearned.count - 8) autre(s) — tout est dans Mémoire.")
+                Text("… and \(state.lastLearned.count - 8) more — it's all in Memory.")
                     .font(.system(size: 11.5)).foregroundStyle(Color(hexv: 0x8a7d75))
             }
         }
@@ -126,8 +126,8 @@ struct IngestView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Color(hexv: 0x9fd9ad))
             Text(state.facts.isEmpty
-                 ? "Ce qu'Ember apprend de tes données apparaît dans l'onglet Mémoire."
-                 : "Ember connaît \(state.facts.count) fait\(state.facts.count > 1 ? "s" : "") sur toi — vois l'onglet Mémoire.")
+                 ? "Whatever Ember learns from your data shows up in the Memory tab."
+                 : "Ember knows \(state.facts.count) fact\(state.facts.count > 1 ? "s" : "") about you — see the Memory tab.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Color(hexv: 0x8a7d75))
             Spacer(minLength: 0)
@@ -140,7 +140,7 @@ struct IngestView: View {
             EmberOrb(mode: state.orbMode, size: 40)   // sectionOrb
                 .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: 0) {
-                Text("Apprends-lui tes données")
+                Text("Teach her your data")
                     .font(.emberSerif(30))                 // Newsreader serif 30 / 600
                     .tracking(0.2)                          // letter-spacing:0.2px
                     .foregroundStyle(Color(hexv: 0xf5e7db))
@@ -159,11 +159,11 @@ struct IngestView: View {
                 Image(systemName: "arrow.up.to.line")
                     .font(.system(size: 38, weight: .light))
                     .foregroundStyle(Color(hexv: 0xe0a079))
-                Text("Glisse des fichiers ou dossiers ici")
+                Text("Drop files or folders here")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xecd9c9))
                     .padding(.top, 14)                      // margin-top:14px
-                Text(".txt · .md · .pdf — ou clique pour parcourir")
+                Text(".txt · .md · .pdf — or click to browse")
                     .font(.system(size: 13))
                     .foregroundStyle(Color(hexv: 0x8a7d75))
                     .padding(.top, 5)                       // margin-top:5px
@@ -199,7 +199,7 @@ struct IngestView: View {
             HStack(spacing: 10) {
                 EmberOrb(mode: .apprend, size: 18)          // miniOrb
                     .frame(width: 18, height: 18)
-                Text("Apprentissage en cours…")
+                Text("Learning…")
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xe8c4a8))
                 if let last = state.trainingLog.last {
@@ -210,7 +210,7 @@ struct IngestView: View {
                 }
                 Spacer(minLength: 8)
                 Button { state.cancelLearning() } label: {
-                    Text("Arrêter")
+                    Text("Stop")
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(Color(hexv: 0xff8a7a))
                         .padding(.vertical, 4).padding(.horizontal, 11)
@@ -241,7 +241,7 @@ struct IngestView: View {
         panel.canChooseDirectories = true          // … ou des dossiers (tenu : « ou dossiers »)
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.plainText, .text, .data, .folder]
-        panel.prompt = "Apprendre"
+        panel.prompt = "Learn"
         if panel.runModal() == .OK {
             state.learn(panel.urls)
         }
@@ -277,7 +277,7 @@ private struct AppleNotesCard: View {
                 Text("Apple Notes")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xecd9c9))
-                Text("Lis tes notes et apprends-en des faits — 100% en local")
+                Text("Reads your notes and learns facts from them — 100% local")
                     .font(.system(size: 12))
                     .foregroundStyle(Color(hexv: 0x8a7d75))
             }
@@ -285,13 +285,13 @@ private struct AppleNotesCard: View {
             // Create / Update : (ré)apprendre les notes
             Button { Task { await state.teachNotes() } } label: {
                 TagPill(
-                    text: state.isLearning ? "Lecture…" : "Apprendre mes notes",
+                    text: state.isLearning ? "Reading…" : "Learn my notes",
                     fg: Color(hexv: 0x9fd9ad),
                     bg: Color(hexv: 0x5fd07a).opacity(0.12)
                 )
             }
             .buttonStyle(.plain).disabled(state.isLearning)
-            .help("(Ré)apprendre tes notes Apple")
+            .help("(Re)learn your Apple notes")
             // Delete : oublier ce que les notes ont appris
             Button { Task { await state.forgetNotes() } } label: {
                 Image(systemName: "trash")
@@ -300,7 +300,7 @@ private struct AppleNotesCard: View {
                     .frame(width: 26, height: 26)
             }
             .buttonStyle(.plain).disabled(state.isLearning)
-            .help("Oublier ce qu'Ember a appris de tes notes")
+            .help("Forget what Ember learned from your notes")
         }
         .padding(16)
         .background(
@@ -343,11 +343,11 @@ private struct ConnectedFolderCard: View {
             Spacer()
             // Update : re-apprendre
             Button { state.resyncFolder(path) } label: {
-                TagPill(text: state.isLearning ? "…" : "Re-synchroniser",
+                TagPill(text: state.isLearning ? "…" : "Re-sync",
                         fg: Color(hexv: 0x9fd9ad), bg: Color(hexv: 0x5fd07a).opacity(0.12))
             }
             .buttonStyle(.plain).disabled(state.isLearning)
-            .help("Re-apprendre ce dossier")
+            .help("Re-learn this folder")
             // Delete-data : oublier ce qu'il a appris (+ retire le connecteur)
             Button { Task { await state.forgetConnector(path) } } label: {
                 Image(systemName: "trash")
@@ -356,7 +356,7 @@ private struct ConnectedFolderCard: View {
                     .frame(width: 26, height: 26)
             }
             .buttonStyle(.plain).disabled(state.isLearning)
-            .help("Oublier ce que ce dossier a appris, et le retirer")
+            .help("Forget what this folder taught, and remove it")
             // Delete-connector only : retire le connecteur, garde les faits
             Button { state.disconnectFolder(path) } label: {
                 Image(systemName: "xmark")
@@ -365,7 +365,7 @@ private struct ConnectedFolderCard: View {
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
-            .help("Retirer le connecteur (garder les faits appris)")
+            .help("Remove the connector (keep the learned facts)")
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.04)))
@@ -386,7 +386,7 @@ private struct ConnectFolderCard: View {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xc79a82))
-                Text("Connecter un dossier — choisis ce qu'Ember peut lire (Obsidian, Documents, un projet…)")
+                Text("Connect a folder — choose what Ember can read (Obsidian, Documents, a project…)")
                     .font(.system(size: 13))
                     .foregroundStyle(Color(hexv: 0xc79a82))
                 Spacer(minLength: 0)
@@ -433,7 +433,7 @@ private struct FullLearnHero: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
-                        Text("Apprentissage complet")
+                        Text("Full learning")
                             .font(.emberSerif(21))
                             .foregroundStyle(Color(hexv: 0xf5e7db))
                         Text("MODE")
@@ -442,13 +442,13 @@ private struct FullLearnHero: View {
                             .padding(.vertical, 2).padding(.horizontal, 6)
                             .background(Capsule().fill(Color(hexv: 0xff783c).opacity(0.22)))
                     }
-                    Text("Ouvre Ember sur ton Mac")
+                    Text("Open Ember up to your Mac")
                         .font(.system(size: 12.5)).foregroundStyle(Color(hexv: 0xc79a82))
                 }
                 Spacer(minLength: 0)
             }
 
-            Text("Apprends de tout ton Mac, **100% en local** — ou choisis des dossiers précis. Système, bibliothèques et caches sont exclus. Rien ne sort, tu peux arrêter quand tu veux ; tout est inspectable dans Mémoire.")
+            Text("Learn from your whole Mac, **100% local** — or pick specific folders. System files, libraries, and caches are excluded. Nothing leaves, you can stop whenever you want; everything is inspectable in Memory.")
                 .font(.system(size: 13.5)).foregroundStyle(Color(hexv: 0xcdbcb0))
                 .lineSpacing(3).fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 14)
@@ -458,7 +458,7 @@ private struct FullLearnHero: View {
                 Button(action: onWholeMac) {
                     HStack(spacing: 8) {
                         Image(systemName: "externaldrive.fill.badge.person.crop").font(.system(size: 13, weight: .semibold))
-                        Text("Tout mon Mac").font(.system(size: 13.5, weight: .bold))
+                        Text("My whole Mac").font(.system(size: 13.5, weight: .bold))
                     }
                     .foregroundStyle(Color(hexv: 0x1a0f0a))
                     .padding(.vertical, 10).padding(.horizontal, 18)
@@ -470,7 +470,7 @@ private struct FullLearnHero: View {
                 .buttonStyle(.plain).disabled(state.isLearning)
 
                 Button(action: onPickFolders) {
-                    Text("Choisir des dossiers")
+                    Text("Choose folders")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color(hexv: 0xffd9b8))
                         .padding(.vertical, 10).padding(.horizontal, 16)
@@ -485,7 +485,7 @@ private struct FullLearnHero: View {
             Button(action: onSettings) {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.open").font(.system(size: 10))
-                    Text("Donner l'accès complet au disque (Réglages système)")
+                    Text("Grant full disk access (System Settings)")
                         .font(.system(size: 11))
                 }
                 .foregroundStyle(Color(hexv: 0x9bb0c4))
@@ -541,9 +541,9 @@ private struct IngestProgressBar: View {
 private struct IngestSubtitle: View {
     var body: some View {
         (
-            Text("Glisse tes fichiers ou connecte tes apps. ")
+            Text("Drop your files or connect your apps. ")
                 .foregroundColor(.emberMuted)
-            + Text("Tout reste sur ce Mac.")
+            + Text("Everything stays on this Mac.")
                 .foregroundColor(Color(hexv: 0x7fd095))
         )
         .font(.system(size: 14))

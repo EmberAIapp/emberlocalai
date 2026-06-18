@@ -2,8 +2,8 @@ import SwiftUI
 
 struct OnboardingView: View {
     @EnvironmentObject var state: AppState
-    @State private var name: String = "Mon Ember"
-    @State private var personaSel: String = "Calme"
+    @State private var name: String = "My Ember"
+    @State private var personaSel: String = "Calm"
 
     var body: some View {
         ZStack {
@@ -49,7 +49,7 @@ struct OnboardingView: View {
             // "Passer" — top 26 / right 30 / 13 / #8a7d75
             .overlay(alignment: .topTrailing) {
                 Button(action: { state.skipOnboard() }) {
-                    Text("Passer")
+                    Text("Skip")
                         .font(.system(size: 13))
                         .foregroundStyle(Color(hexv: 0x8a7d75))
                 }
@@ -70,23 +70,23 @@ struct OnboardingView: View {
 
     private var title: String {
         switch state.onboardStep {
-        case 1: return "Donne-lui un nom"
-        case 2: return "Apprends-lui tes données"
-        default: return "Elle te connaît, maintenant"
+        case 1: return "Give her a name"
+        case 2: return "Teach her your data"
+        default: return "She knows you now"
         }
     }
 
     private var subtitle: String {
         switch state.onboardStep {
-        case 1: return "Et choisis son tempérament. Tu pourras tout changer plus tard."
-        case 2: return "Glisse ce que tu veux qu'elle sache. Rien ne quitte ce Mac."
-        default: return "Parle-lui. Sa mémoire est à toi — inspectable et privée."
+        case 1: return "And choose her temperament. You can change everything later."
+        case 2: return "Drop in whatever you want her to know. Nothing leaves this Mac."
+        default: return "Talk to her. Her memory is yours — inspectable and private."
         }
     }
 
     private var ctaTitle: String {
-        if state.onboardStep == 2 && state.isLearning { return "Apprentissage…" }
-        return state.onboardStep == 3 ? "Commencer" : "Continuer"
+        if state.onboardStep == 2 && state.isLearning { return "Learning…" }
+        return state.onboardStep == 3 ? "Get started" : "Continue"
     }
 
     @ViewBuilder
@@ -201,7 +201,7 @@ private struct OnboardingStepName: View {
                     .font(.emberSerif(20, weight: .regular))
                     .foregroundStyle(Color(hexv: 0xf3e3d7))
 
-                Text("son nom")
+                Text("her name")
                     .font(.system(size: 12))
                     .foregroundStyle(Color(hexv: 0x8a7d75))
                     .padding(.trailing, 10)
@@ -290,13 +290,13 @@ private struct OnboardingStepLearn: View {
                 .frame(width: 34, height: 34)
 
             // 15 / 600 / #ecd9c9 / margin-top 12
-            Text("Glisse une note, un PDF, un dossier…")
+            Text("Drop in a note, a PDF, a folder…")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color(hexv: 0xecd9c9))
                 .padding(.top, 12)
 
             // 12.5 / #8a7d75 / margin-top 4
-            Text("ou connecte Notes, Mail, Obsidian")
+            Text("or connect Notes, Mail, Obsidian")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Color(hexv: 0x8a7d75))
                 .padding(.top, 4)
@@ -318,7 +318,7 @@ private struct OnboardingStepLearn: View {
 // Step 3 — quote. Newsreader italic 19 / #cdbcb0 / line-height 1.5
 private struct OnboardingStepChat: View {
     var body: some View {
-        Text("« Demande-moi n'importe quoi sur toi.\nJe m'en souviendrai, et rien ne quittera ce Mac. »")
+        Text("“Ask me anything about you.\nI'll remember it, and nothing will leave this Mac.”")
             .font(.emberSerif(19, weight: .regular).italic())
             .foregroundStyle(Color(hexv: 0xcdbcb0))
             .multilineTextAlignment(.center)

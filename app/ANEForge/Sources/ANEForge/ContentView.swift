@@ -97,7 +97,7 @@ struct TopBar: View {
                             .padding(.vertical, 5).padding(.horizontal, 11)
                             .ghostHover()
                         }
-                        .buttonStyle(.plain).help("Revenir à Ember")
+                        .buttonStyle(.plain).help("Go back to Ember")
                     }
                     Spacer(minLength: 8)
                     // À droite : la coulisse — Apprendre · Mémoire · Réglages.
@@ -155,7 +155,7 @@ struct TopBar: View {
                 }
                 // fact-count : texte plat « · N faits » (la pastille orange « séparait » → supprimée)
                 if state.selected != nil {
-                    Text("· \(factCount) fait\(factCount > 1 ? "s" : "")")
+                    Text("· \(factCount) fact\(factCount == 1 ? "" : "s")")
                         .font(.system(size: 10.5))
                         .foregroundStyle(Color(hexv: 0x9a8073))
                         .shadow(color: kBarGlyphShadow, radius: 5)
@@ -182,14 +182,14 @@ struct TopBar: View {
     private var switcherMenu: some View {
         VStack(alignment: .leading, spacing: 0) {
             // header label: 10.5px 700 letter-spacing 0.7 #7c6f67, padding 8px 10px 6px
-            Text("MES IA — ISOLÉES & PRIVÉES")
+            Text("MY AIs — ISOLATED & PRIVATE")
                 .font(.system(size: 10.5, weight: .bold))
                 .tracking(0.7)
                 .foregroundStyle(Color(hexv: 0x7c6f67))
                 .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 6)
 
             if state.models.isEmpty {
-                Text("Aucune IA encore. Crées-en une.")
+                Text("No AI yet. Create one.")
                     .font(.system(size: 12)).foregroundStyle(.emberMuted)
                     .padding(.horizontal, 11).padding(.vertical, 8)
             }
@@ -212,7 +212,7 @@ struct TopBar: View {
                                 .font(.system(size: 13.5, weight: .semibold))
                                 .foregroundStyle(Color(hexv: 0xf0ddcf))
                             // meta 11px #9a8073 — honnête : pas de fausse « version/pas d'entraînement »
-                            Text("IA locale")
+                            Text("Local AI")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color(hexv: 0x9a8073))
                         }
@@ -231,9 +231,9 @@ struct TopBar: View {
                 .buttonStyle(.plain)
                 // Right-click an IA to delete it (quick CRUD from the list)
                 .contextMenu {
-                    Button("Renommer dans Réglages…") { state.select(m); state.view = .settings; state.switcherOpen = false }
+                    Button("Rename in Settings…") { state.select(m); state.view = .settings; state.switcherOpen = false }
                     Divider()
-                    Button("Supprimer « \(m.name) »", role: .destructive) {
+                    Button("Delete \"\(m.name)\"", role: .destructive) {
                         Task { await state.deleteModel(m.name) }
                     }
                 }
@@ -243,7 +243,7 @@ struct TopBar: View {
             Button { state.switcherOpen = false; showingCreate = true } label: {
                 HStack(spacing: 9) {
                     Text("+").font(.system(size: 16))
-                    Text("Nouvelle IA").font(.system(size: 13, weight: .semibold))
+                    Text("New AI").font(.system(size: 13, weight: .semibold))
                 }
                 .foregroundStyle(Color(hexv: 0xc79a82))
                 .padding(.horizontal, 12).padding(.vertical, 11)
@@ -310,7 +310,7 @@ struct BootOverlay: View {
             WindowBackground()
             VStack(spacing: 18) {
                 EmberOrb(mode: .reflexion, size: 70).frame(height: 150)
-                Text("Ember se réveille…")
+                Text("Ember is waking up…")
                     .font(.emberSerif(18, weight: .regular).italic())
                     .foregroundStyle(.emberSerif)
             }
@@ -329,7 +329,7 @@ struct CreateSheet: View {
     // Honest (§2.4 — "la preuve, pas la promesse"): every IA runs on ONE local engine,
     // loaded once. We don't offer phantom model choices the engine doesn't actually run.
     private let bases = [
-        ("qwen2.5-1.5b-instruct", "Qwen2.5-1.5B", "100% local · multilingue · optimisé Apple Silicon"),
+        ("qwen2.5-1.5b-instruct", "Qwen2.5-1.5B", "100% local · multilingual · Apple Silicon optimized"),
     ]
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
@@ -340,17 +340,17 @@ struct CreateSheet: View {
             HStack(spacing: 12) {
                 EmberOrb(mode: .ecoute, size: 30).frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Créer mon IA")
+                    Text("Create my AI")
                         .font(.emberSerif(22)).foregroundStyle(.emberInk)
-                    Text("Une mémoire neuve, isolée et 100% privée.")
+                    Text("A fresh memory, isolated and 100% private.")
                         .font(.system(size: 13)).foregroundStyle(.emberMuted)
                 }
             }
 
             // name field
             VStack(alignment: .leading, spacing: 8) {
-                SectionLabel("Nom")
-                TextField("ex : mon-assistant", text: $name)
+                SectionLabel("Name")
+                TextField("e.g. my-assistant", text: $name)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .foregroundStyle(.emberInk)
@@ -362,7 +362,7 @@ struct CreateSheet: View {
 
             // base model — selectable cards (matching Réglages)
             VStack(alignment: .leading, spacing: 9) {
-                SectionLabel("Modèle de base")
+                SectionLabel("Base model")
                 ForEach(bases, id: \.0) { b in
                     Button { base = b.0 } label: { baseCard(b) }
                         .buttonStyle(.plain)
@@ -372,11 +372,11 @@ struct CreateSheet: View {
             // actions
             HStack(spacing: 14) {
                 Spacer()
-                Button("Annuler") { dismiss() }
+                Button("Cancel") { dismiss() }
                     .buttonStyle(.plain)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.emberMuted)
-                EmberCTA(title: "Créer", size: 13) {
+                EmberCTA(title: "Create", size: 13) {
                     guard !trimmed.isEmpty else { return }
                     Task { await state.create(name: trimmed, base: base); dismiss() }
                 }

@@ -15,22 +15,22 @@ func factRelativeDate(_ iso: String?) -> String {
 /// Human category label for a fact's kind (works for any classify_kind output).
 func factCategoryLabel(_ kind: String) -> String {
     let k = kind.lowercased()
-    if k.contains("trav") || k.contains("job") || k.contains("work") || k.contains("méti") || k.contains("meti") { return "TRAVAIL" }
-    if k.contains("proj") || k.contains("goal") || k.contains("but") { return "PROJET" }
-    if k.contains("goût") || k.contains("gout") || k.contains("like") || k.contains("aime") || k.contains("taste") { return "GOÛTS" }
-    if k.contains("lieu") || k.contains("loc") { return "LIEU" }
-    if k.contains("rel") || k.contains("ami") || k.contains("famille") { return "PROCHES" }
-    if k.contains("perso") || k.contains("name") || k.contains("nom") { return "PERSO" }
-    return "DIVERS"
+    if k.contains("trav") || k.contains("job") || k.contains("work") || k.contains("méti") || k.contains("meti") { return "WORK" }
+    if k.contains("proj") || k.contains("goal") || k.contains("but") { return "PROJECT" }
+    if k.contains("goût") || k.contains("gout") || k.contains("like") || k.contains("aime") || k.contains("taste") { return "TASTES" }
+    if k.contains("lieu") || k.contains("loc") { return "PLACE" }
+    if k.contains("rel") || k.contains("ami") || k.contains("famille") { return "PEOPLE" }
+    if k.contains("perso") || k.contains("name") || k.contains("nom") { return "PERSONAL" }
+    return "OTHER"
 }
 
 /// Where a fact came from → (label, SF Symbol). nil for unknown sources.
 func factSource(_ source: String) -> (text: String, icon: String)? {
     switch source {
-    case "explicit": return ("ajouté par toi", "pencil")
-    case "model":    return ("appris en discutant", "bubble.left.fill")
-    case "idle":     return ("noté en veille", "moon.fill")
-    case "file":     return ("depuis un fichier", "doc.fill")
+    case "explicit": return ("added by you", "pencil")
+    case "model":    return ("learned while chatting", "bubble.left.fill")
+    case "idle":     return ("noted while idle", "moon.fill")
+    case "file":     return ("from a file", "doc.fill")
     default:         return nil
     }
 }
@@ -65,7 +65,7 @@ struct MemoryView: View {
             EmberOrb(mode: state.orbMode, size: 40)
                 .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: 2) {   // subtitle margin-top:2px
-                Text("Sa mémoire de toi")
+                Text("Her memory of you")
                     .font(.emberSerif(30))               // Newsreader serif 30 / 600
                     .foregroundStyle(Color(hexv: 0xf5e7db))
                 subtitle
@@ -76,9 +76,9 @@ struct MemoryView: View {
     // 14px · #9a8d84 (muted) + green #7fd095
     private var subtitle: some View {
         (
-            Text("Tout est inspectable, modifiable, supprimable. ")
+            Text("Everything is inspectable, editable, deletable. ")
                 .foregroundStyle(Color.emberMuted)
-            + Text("Tu gardes la main.")
+            + Text("You stay in control.")
                 .foregroundStyle(Color.localGreen2)
         )
         .font(.system(size: 14))
@@ -92,7 +92,7 @@ struct MemoryView: View {
                 .font(.system(size: 13))
                 .foregroundStyle(Color(hexv: 0x8a7d75))
             TextField("", text: $state.factQuery, prompt:
-                Text("Rechercher un fait — « métier » trouve « infirmière » (sémantique multilingue)")
+                Text("Search a fact — \u{201C}job\u{201D} finds \u{201C}nurse\u{201D} (multilingual semantic)")
                     .foregroundColor(Color(hexv: 0x8a7d75)))
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
@@ -163,12 +163,12 @@ private struct MemoryFactsColumn: View {
         let querying = !state.factQuery.trimmingCharacters(in: .whitespaces).isEmpty
         let shown = state.visibleFacts
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel(querying ? "Résultats · \(shown.count)"
-                                  : "Faits · \(state.facts.count)")   // 11/700, tracking .8
+            SectionLabel(querying ? "Results · \(shown.count)"
+                                  : "Facts · \(state.facts.count)")   // 11/700, tracking .8
                 .padding(.bottom, 13)                         // label margin-bottom:13px
             if shown.isEmpty {
-                Text(querying ? "Aucun fait ne correspond à « \(state.factQuery) »."
-                              : "Rien encore — apprends-lui des choses, ou discute.")
+                Text(querying ? "No fact matches \u{201C}\(state.factQuery)\u{201D}."
+                              : "Nothing yet — teach her things, or just chat.")
                     .font(.emberSerif(15, weight: .regular).italic())
                     .foregroundStyle(Color.emberMuted)
                     .padding(.vertical, 6)
@@ -315,7 +315,7 @@ private struct MemoryAddFactRow: View {
                 .font(.system(size: 15))
                 .foregroundStyle(Color(hexv: 0xc79a82))
             TextField("", text: $text, prompt:
-                Text("Ajouter un fait (ex. « je suis allergique aux arachides »)")
+                Text("Add a fact (e.g. \u{201C}I'm allergic to peanuts\u{201D})")
                     .foregroundColor(Color(hexv: 0xc79a82).opacity(0.85)))
                 .textFieldStyle(.plain)
                 .font(.system(size: 13.5))
@@ -324,7 +324,7 @@ private struct MemoryAddFactRow: View {
                 .onSubmit(submit)
             if !text.trimmingCharacters(in: .whitespaces).isEmpty {
                 Button(action: submit) {
-                    Text("Ajouter")
+                    Text("Add")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color(hexv: 0xe8b48f))
                 }
@@ -357,10 +357,10 @@ private struct MemoryWikiColumn: View {
     @EnvironmentObject var state: AppState
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("Ce qu'Ember sait de toi · profil auto-maintenu")
+            SectionLabel("What Ember knows about you · self-maintained profile")
                 .padding(.bottom, 13)
             MemoryProfilePanel()
-            SectionLabel("Appris récemment")
+            SectionLabel("Learned recently")
                 .padding(.top, 24)
                 .padding(.bottom, 13)
             MemoryRecent()
@@ -374,13 +374,13 @@ private struct MemoryProfilePanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                TagPill(text: "\(state.facts.count) fait\(state.facts.count > 1 ? "s" : "")",
+                TagPill(text: "\(state.facts.count) fact\(state.facts.count > 1 ? "s" : "")",
                         fg: Color(hexv: 0xe8b48f), bg: Color(hexv: 0xff965a).opacity(0.14), radius: 8, fontSize: 11)
                 Spacer(minLength: 0)
             }
             .padding(.bottom, 14)
             if state.profileText.isEmpty {
-                Text("Ton profil se construit tout seul au fil de vos échanges — et quand Ember est en veille. Parle-lui un peu, puis reviens ici.")
+                Text("Your profile builds itself as you talk — and while Ember is idle. Chat with her a little, then come back here.")
                     .font(.emberSerif(15.5, weight: .regular)).foregroundStyle(Color(hexv: 0xcdbcb0))
                     .lineSpacing(5).fixedSize(horizontal: false, vertical: true)
             } else {
@@ -389,7 +389,7 @@ private struct MemoryProfilePanel: View {
                     .lineSpacing(6).fixedSize(horizontal: false, vertical: true)
             }
             Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.top, 14)
-            Text("Synthétisé en local à partir de tes faits · mis à jour quand Ember est en veille")
+            Text("Synthesized locally from your facts · updated while Ember is idle")
                 .font(.system(size: 11.5)).foregroundStyle(Color(hexv: 0x8a7d75))
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 13)
         }
@@ -403,7 +403,7 @@ private struct MemoryRecent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if state.facts.isEmpty {
-                Text("Rien encore — apprends-lui quelque chose (ou parle-lui) et ça apparaîtra ici.")
+                Text("Nothing yet — teach her something (or talk to her) and it'll show up here.")
                     .font(.system(size: 12.5)).foregroundStyle(Color(hexv: 0x8a7d75)).padding(.vertical, 4)
             } else {
                 let recent = Array(state.facts.suffix(6).reversed())

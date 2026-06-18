@@ -29,7 +29,8 @@ struct HerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
-            speech.requestAuth()
+            // Voice permission is requested only when the user actually engages voice — tapping the
+            // mic (startVoice) or arming « Ok Ember » (onChange wakeWanted) — never eagerly on launch.
             speech.onTranscript = { t in
                 // A permission is waiting → answer it by voice ("oui"/"non"), truly mains libres.
                 if state.agentPendingGate != nil, let yes = state.voiceGateAnswer(t) {
@@ -74,8 +75,8 @@ struct HerView: View {
         .onChange(of: speech.wakeFailed) { _, failed in
             guard failed else { return }
             state.wakeWanted = false        // on désarme : pas de boucle qui draine
-            state.errorText = "« Ok Ember » a besoin de la reconnaissance vocale SUR L'APPAREIL "
-                            + "(indisponible pour cette langue/machine, ou permission refusée). Le bouton micro reste, lui, disponible."
+            state.errorText = "“Ok Ember” needs ON-DEVICE speech recognition "
+                            + "(unavailable for this language/machine, or permission denied). The mic button is still available, though."
         }
         .onChange(of: state.voiceSession) { _, on in if !on { armWakeIfWanted() } }
         .onChange(of: speech.authorized) { _, ok in if ok { armWakeIfWanted() } }   // permission accordée → arme
@@ -97,8 +98,8 @@ struct HerView: View {
         // marche pas »). On guide l'utilisateur au lieu d'échouer sans rien dire.
         guard speech.authorized else {
             speech.requestAuth()
-            state.errorText = "Pour parler à Ember, autorise « Microphone » et « Reconnaissance vocale » "
-                            + "dans Réglages système › Confidentialité et sécurité, puis réessaie."
+            state.errorText = "To talk to Ember, allow “Microphone” and “Speech Recognition” "
+                            + "in System Settings › Privacy & Security, then try again."
             return
         }
         speech.stopWakeListening()                        // le micro passe à la conversation
@@ -192,14 +193,14 @@ private struct ConversationColumn: View {
 
     // L'orbe ne montre QUE l'état vivant — jamais la dernière réponse (elle est déjà dans le fil → zéro doublon).
     private var caption: String {
-        if speech.listening { return liveText.isEmpty ? "À l'écoute…" : liveText }
-        if state.isBusy { return "Je réfléchis…" }
-        if state.agentBusy { return "Je m'en occupe…" }
+        if speech.listening { return liveText.isEmpty ? "Listening…" : liveText }
+        if state.isBusy { return "Thinking…" }
+        if state.agentBusy { return "On it…" }
         if state.talking || state.herSpeaking { return "…" }
         if !active {
-            return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Parle-moi, ou confie-moi une tâche."
+            return state.voiceSession ? "I'm listening — speak whenever you like." : "Talk to me, or hand me a task."
         }
-        return state.voiceSession ? "Je t'écoute — parle quand tu veux." : "Je t'écoute."
+        return state.voiceSession ? "I'm listening — speak whenever you like." : "I'm listening."
     }
 
     /// Le fil « vit » dès qu'il y a un échange, un travail ou un document — l'orbe se fait alors compact.
@@ -228,7 +229,7 @@ private struct ConversationColumn: View {
                 EmberOrb(mode: state.orbMode, size: orbSize).frame(width: orbSize, height: orbSize)
             }
             .buttonStyle(.plain)
-            .help(state.isBusy || state.agentBusy || state.talking ? "Interrompre" : "Parler (mains libres)")
+            .help(state.isBusy || state.agentBusy || state.talking ? "Interrupt" : "Speak (hands-free)")
             VoiceWave(level: level, paused: level <= 0.15 && !state.isBusy && !state.agentBusy)
                 .frame(width: active ? 240 : 320, height: active ? 44 : 70)
             Text(caption)
@@ -246,19 +247,19 @@ private struct ConversationColumn: View {
     @ViewBuilder private var generatedCard: some View {
         if state.generating || state.lastGenerated != nil {
             VStack(alignment: .leading, spacing: 3) {
-                Text("EMBER · GÉNÉRÉ").font(.system(size: 9.5, weight: .medium)).tracking(0.8)
+                Text("EMBER · GENERATED").font(.system(size: 9.5, weight: .medium)).tracking(0.8)
                     .foregroundStyle(Color(hexv: 0x8a9b8e))
                 HStack(spacing: 10) {
                     if state.generating {
                         Image(systemName: "doc.badge.gearshape").font(.system(size: 13)).foregroundStyle(Color(hexv: 0xffb877))
-                        Text("Génération du document… (local)").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xe8c4a8))
+                        Text("Generating document… (local)").font(.system(size: 12)).foregroundStyle(Color(hexv: 0xe8c4a8))
                         Spacer(minLength: 0)
                     } else if let doc = state.lastGenerated {
                         Image(systemName: "doc.text.fill").font(.system(size: 14)).foregroundStyle(Color(hexv: 0x9fd9ad))
                         Text(doc.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xecd9c9)).lineLimit(1)
                         Spacer(minLength: 0)
-                        Button { state.openGenerated() } label: { genPill("Ouvrir") }.buttonStyle(.plain)
-                        Button { state.revealGenerated() } label: { genPill("Révéler") }.buttonStyle(.plain)
+                        Button { state.openGenerated() } label: { genPill("Open") }.buttonStyle(.plain)
+                        Button { state.revealGenerated() } label: { genPill("Reveal") }.buttonStyle(.plain)
                         Button { state.lastGenerated = nil } label: {
                             Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color(hexv: 0x8a7d75)).frame(width: 20, height: 20)
                         }.buttonStyle(.plain)
@@ -287,15 +288,15 @@ private struct ConversationColumn: View {
     // Une création passée, restaurée à sa place dans le fil (carte ouvrable).
     private func creationRow(_ turn: HerTurn) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("EMBER · GÉNÉRÉ").font(.system(size: 9.5, weight: .medium)).tracking(0.8)
+            Text("EMBER · GENERATED").font(.system(size: 9.5, weight: .medium)).tracking(0.8)
                 .foregroundStyle(Color(hexv: 0x8a9b8e))
             HStack(spacing: 10) {
                 Image(systemName: "doc.text.fill").font(.system(size: 14)).foregroundStyle(Color(hexv: 0x9fd9ad))
                 Text(turn.text).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xecd9c9)).lineLimit(1)
                 Spacer(minLength: 0)
                 if let p = turn.path {
-                    Button { state.openPath(p) } label: { genPill("Ouvrir") }.buttonStyle(.plain)
-                    Button { state.revealPath(p) } label: { genPill("Révéler") }.buttonStyle(.plain)
+                    Button { state.openPath(p) } label: { genPill("Open") }.buttonStyle(.plain)
+                    Button { state.revealPath(p) } label: { genPill("Reveal") }.buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 9).padding(.horizontal, 13)
@@ -309,7 +310,7 @@ private struct ConversationColumn: View {
     // Le fil unique : un seul flux chronologique (pas de séparateur « — L'ÉCHANGE — »).
     @ViewBuilder private var thread: some View {
         if !active {
-            Text("Dis « Bonjour » ou pose-moi une question — je te réponds à voix haute. Confie-moi une tâche (« range mes captures ») et tu verras le travail se dérouler ici, puis ce que j'ai généré.")
+            Text("Say “Hello” or ask me anything — I answer out loud. Hand me a task (“tidy up my screenshots”) and you'll watch the work unfold here, then what I made.")
                 .font(.system(size: 12.5)).foregroundStyle(Color.emberMuted)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -360,7 +361,7 @@ private struct ConversationColumn: View {
         HStack(alignment: .top, spacing: 0) {
             if turn.role == .user { Spacer(minLength: 60) }
             VStack(alignment: turn.role == .user ? .trailing : .leading, spacing: 3) {
-                Text(turn.role == .user ? "TOI" : "EMBER")
+                Text(turn.role == .user ? "YOU" : "EMBER")
                     .font(.system(size: 9.5, weight: .medium)).tracking(0.8)
                     .foregroundStyle(turn.role == .user ? Color(hexv: 0x8a7a70) : Color(hexv: 0xc79a82))
                 if turn.role == .ember {
@@ -389,10 +390,10 @@ private struct ConversationColumn: View {
                     .foregroundStyle(state.voiceSession || speech.listening ? Color(hexv: 0xff5a46) : Color(hexv: 0x9a8d84))
                     .symbolEffect(.pulse, isActive: speech.listening)
             }
-            .buttonStyle(.plain).help(state.voiceSession ? "Couper la conversation" : "Conversation vocale (mains libres)")
+            .buttonStyle(.plain).help(state.voiceSession ? "Stop the conversation" : "Voice conversation (hands-free)")
 
-            TextField(speech.listening ? (liveText.isEmpty ? "À l'écoute…" : liveText)
-                       : (state.voiceSession ? "En conversation — appuie pour couper" : "Parle ou écris à Ember…"), text: $draft)
+            TextField(speech.listening ? (liveText.isEmpty ? "Listening…" : liveText)
+                       : (state.voiceSession ? "In conversation — tap to stop" : "Talk or type to Ember…"), text: $draft)
                 .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
                 .onSubmit { if canSend { send() } }
 
@@ -403,7 +404,7 @@ private struct ConversationColumn: View {
             }
             .buttonStyle(.plain)
             .disabled(state.generating || draft.trimmingCharacters(in: .whitespaces).isEmpty)
-            .help("Générer un document (local)")
+            .help("Generate a document (local)")
 
             Button(action: send) {
                 Image(systemName: "arrow.up.circle.fill").font(.system(size: 22))
@@ -420,7 +421,7 @@ private struct ConversationColumn: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.shield").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x7fd095))
-            Text(state.voiceSession && speech.fullDuplex ? "Voix 100% locale · duplex" : "Voix & conversation 100% locales")
+            Text(state.voiceSession && speech.fullDuplex ? "Voice 100% local · duplex" : "Voice & conversation, 100% local")
                 .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9bbfa3))
             Spacer(minLength: 6)
             Button { state.wakeWanted.toggle() } label: {
@@ -428,18 +429,18 @@ private struct ConversationColumn: View {
                      label: state.wakeWanted ? "Ok Ember ON" : "Ok Ember")
             }
             .buttonStyle(.plain)
-            .help("Dis « Ok Ember » pour démarrer sans toucher — écoute en continu, 100% sur le Mac. Le micro reste actif tant que c'est armé.")
+            .help("Say “Ok Ember” to start hands-free — always-listening, 100% on your Mac. The mic stays active while armed.")
             Button { state.fullDuplexWanted.toggle() } label: {
                 pill(on: state.fullDuplexWanted, icon: "waveform", label: state.fullDuplexWanted ? "Duplex ON" : "Duplex")
             }
             .buttonStyle(.plain)
-            .help("Te couper la parole en parlant (annulation d'écho). Expérimental — au casque c'est idéal.")
+            .help("Talk over Ember while she speaks (echo cancellation). Experimental — best with headphones.")
             Button { state.trustMode.toggle() } label: {
                 pill(on: state.trustMode, icon: state.trustMode ? "bolt.shield.fill" : "bolt.shield",
-                     label: state.trustMode ? "Confiance ON" : "Confiance")
+                     label: state.trustMode ? "Trust ON" : "Trust")
             }
             .buttonStyle(.plain)
-            .help("Auto-autoriser les actions non sensibles cette session (l'envoi/suppression reste toujours confirmé)")
+            .help("Auto-allow non-sensitive actions this session (sending/deleting is always confirmed).")
         }
     }
 
@@ -480,12 +481,12 @@ private struct WorkInline: View {
                         HStack(spacing: 7) {
                             Image(systemName: state.agentBusy ? "gearshape.2" : "checkmark.seal").font(.system(size: 12))
                                 .foregroundStyle(Color(hexv: 0xffa050))
-                            Text("Travail · \(steps) étape\(steps > 1 ? "s" : "")")
+                            Text("Work · \(steps) step\(steps > 1 ? "s" : "")")
                                 .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xffa050))
                             Spacer()
                             Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 11))
                                 .foregroundStyle(Color(hexv: 0x8a7a70))
-                            Text(open ? "replier" : "dérouler").font(.system(size: 11)).foregroundStyle(Color(hexv: 0x8a7a70))
+                            Text(open ? "collapse" : "expand").font(.system(size: 11)).foregroundStyle(Color(hexv: 0x8a7a70))
                         }
                     }
                     .buttonStyle(.plain)
@@ -500,7 +501,7 @@ private struct WorkInline: View {
                         // « Vue d'ensemble » (supprimée au profit du fil unique).
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "cloud").font(.system(size: 10)).foregroundStyle(Color(hexv: 0xc9a98f))
-                            Text("Travail piloté par DeepSeek (cloud) · le plan et les résultats y transitent")
+                            Text("Work runs on DeepSeek (cloud) · the plan and results pass through it")
                                 .font(.system(size: 10)).foregroundStyle(Color(hexv: 0xc9a98f))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -530,12 +531,12 @@ private struct HerEventRow: View {
         switch event.type {
         case "gate":               gateRow
         case "done", "message":    EmptyView()
-        case "error":              stepRow(icon: "exclamationmark.triangle.fill", tint: Color(hexv: 0xff6b5a), title: "Erreur", detail: event.text)
+        case "error":              stepRow(icon: "exclamationmark.triangle.fill", tint: Color(hexv: 0xff6b5a), title: "Error", detail: event.text)
         case "tool":               stepRow(icon: toolIcon, tint: Color(hexv: 0xffa050), title: toolTitle, detail: event.detail)
         case "observation":        stepRow(icon: event.denied ? "xmark.circle.fill" : "checkmark.circle.fill",
                                             tint: event.denied ? Color(hexv: 0xff6b5a) : Color(hexv: 0x7fd095),
                                             title: nil, detail: event.text)
-        case "plan":               stepRow(icon: "target", tint: Color(hexv: 0xc79a82), title: "Tâche", detail: event.text)
+        case "plan":               stepRow(icon: "target", tint: Color(hexv: 0xc79a82), title: "Task", detail: event.text)
         default:                   EmptyView()
         }
     }
@@ -566,30 +567,30 @@ private struct HerEventRow: View {
     }
     private var toolTitle: String {
         switch event.tool {
-        case "list_facts":      return "Consulte la mémoire"
-        case "search_memory":   return "Cherche dans la mémoire"
-        case "list_dir":        return "Liste un dossier"
-        case "read_file":       return "Lit un fichier"
-        case "write_note":      return "Écrit une note"
-        case "open_app":        return "Ouvre une app"
-        case "open_url":        return "Ouvre un lien"
-        case "reveal_in_finder": return "Montre dans le Finder"
-        case "spotlight_search": return "Cherche des fichiers"
-        case "search_text":     return "Cherche du texte"
-        case "read_clipboard":  return "Lit le presse-papiers"
-        case "notify":          return "Notifie"
-        case "read_notes":      return "Lit tes notes"
-        case "read_reminders":  return "Lit tes rappels"
-        case "read_calendar":   return "Lit ton agenda"
-        case "write_clipboard": return "Copie dans le presse-papiers"
-        case "create_note":     return "Crée une note"
-        case "create_reminder": return "Crée un rappel"
-        case "create_event":    return "Crée un événement"
-        case "move_file":       return "Déplace un fichier"
-        case "copy_file":       return "Copie un fichier"
-        case "music_control":   return "Contrôle la musique"
-        case "draft_mail":      return "Prépare un brouillon de mail"
-        case "run_shortcut":    return "Lance un raccourci"
+        case "list_facts":      return "Checks memory"
+        case "search_memory":   return "Searches memory"
+        case "list_dir":        return "Lists a folder"
+        case "read_file":       return "Reads a file"
+        case "write_note":      return "Writes a note"
+        case "open_app":        return "Opens an app"
+        case "open_url":        return "Opens a link"
+        case "reveal_in_finder": return "Reveals in Finder"
+        case "spotlight_search": return "Searches for files"
+        case "search_text":     return "Searches text"
+        case "read_clipboard":  return "Reads the clipboard"
+        case "notify":          return "Notifies"
+        case "read_notes":      return "Reads your notes"
+        case "read_reminders":  return "Reads your reminders"
+        case "read_calendar":   return "Reads your calendar"
+        case "write_clipboard": return "Copies to the clipboard"
+        case "create_note":     return "Creates a note"
+        case "create_reminder": return "Creates a reminder"
+        case "create_event":    return "Creates an event"
+        case "move_file":       return "Moves a file"
+        case "copy_file":       return "Copies a file"
+        case "music_control":   return "Controls music"
+        case "draft_mail":      return "Prepares a mail draft"
+        case "run_shortcut":    return "Runs a shortcut"
         default:                return event.tool
         }
     }
@@ -611,30 +612,30 @@ private struct HerEventRow: View {
 
     private var gateDesc: String {
         switch event.tool {
-        case "__cloud__":        return "Envoyer ta demande — et les résultats des outils (fichiers, notes, mémoire lus) — à DeepSeek (cloud) pour cette tâche. Rien n'est encore sorti."
-        case "list_facts":       return "Lire tes faits de mémoire personnelle"
-        case "search_memory":    return "Chercher dans ta mémoire personnelle"
-        case "read_clipboard":   return "Lire ton presse-papiers (il peut contenir des mots de passe / codes)"
-        case "write_note":       return "Écrire « \(event.detail) » dans tes brouillons"
-        case "read_file":        return "Lire « \(event.detail) »"
-        case "list_dir":         return "Lister « \(event.detail) »"
-        case "open_app":         return "Ouvrir l'app « \(event.detail) »"
-        case "open_url":         return "Ouvrir le lien « \(event.detail) »"
-        case "reveal_in_finder": return "Montrer « \(event.detail) » dans le Finder"
-        case "spotlight_search": return "Chercher « \(event.detail) » sur le Mac"
-        case "search_text":      return "Chercher du texte dans « \(event.detail) »"
-        case "read_notes":       return "Lire tes notes"
-        case "read_reminders":   return "Lire tes rappels"
-        case "read_calendar":    return "Lire ton agenda du jour"
-        case "write_clipboard":  return "Copier du texte dans le presse-papiers"
-        case "create_note":      return "Créer la note « \(event.detail) »"
-        case "create_reminder":  return "Créer le rappel « \(event.detail) »"
-        case "create_event":     return "Créer l'événement « \(event.detail) »"
-        case "move_file":        return "Déplacer « \(event.detail) »"
-        case "copy_file":        return "Copier un fichier"
-        case "music_control":    return "Contrôler la musique (\(event.detail))"
-        case "draft_mail":       return "Préparer un brouillon de mail « \(event.detail) » (non envoyé)"
-        case "run_shortcut":     return "Lancer le raccourci « \(event.detail) »"
+        case "__cloud__":        return "Send your request — and the tool results (files, notes, memory read) — to DeepSeek (cloud) for this task. Nothing has left yet."
+        case "list_facts":       return "Read your personal memory facts"
+        case "search_memory":    return "Search your personal memory"
+        case "read_clipboard":   return "Read your clipboard (it may contain passwords / codes)"
+        case "write_note":       return "Write “\(event.detail)” to your drafts"
+        case "read_file":        return "Read “\(event.detail)”"
+        case "list_dir":         return "List “\(event.detail)”"
+        case "open_app":         return "Open the app “\(event.detail)”"
+        case "open_url":         return "Open the link “\(event.detail)”"
+        case "reveal_in_finder": return "Reveal “\(event.detail)” in Finder"
+        case "spotlight_search": return "Search “\(event.detail)” on the Mac"
+        case "search_text":      return "Search for text in “\(event.detail)”"
+        case "read_notes":       return "Read your notes"
+        case "read_reminders":   return "Read your reminders"
+        case "read_calendar":    return "Read today's calendar"
+        case "write_clipboard":  return "Copy text to the clipboard"
+        case "create_note":      return "Create the note “\(event.detail)”"
+        case "create_reminder":  return "Create the reminder “\(event.detail)”"
+        case "create_event":     return "Create the event “\(event.detail)”"
+        case "move_file":        return "Move “\(event.detail)”"
+        case "copy_file":        return "Copy a file"
+        case "music_control":    return "Control music (\(event.detail))"
+        case "draft_mail":       return "Prepare a mail draft “\(event.detail)” (not sent)"
+        case "run_shortcut":     return "Run the shortcut “\(event.detail)”"
         default:                 return event.tool
         }
     }
@@ -644,7 +645,7 @@ private struct HerEventRow: View {
         let exfil: Set<String> = ["read_file", "list_dir", "read_notes", "read_reminders",
                                   "read_calendar", "spotlight_search", "search_text",
                                   "read_clipboard", "list_facts", "search_memory"]
-        return exfil.contains(event.tool) ? "Le contenu lu sera envoyé à DeepSeek (cloud)." : nil
+        return exfil.contains(event.tool) ? "The content read will be sent to DeepSeek (cloud)." : nil
     }
 
     // Tier-3 scopes always re-ask (no "Toujours"): the cloud egress, shortcuts, sends, deletes…
@@ -658,7 +659,7 @@ private struct HerEventRow: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "lock.shield").font(.system(size: 12.5)).foregroundStyle(Color(hexv: 0xffd089)).frame(width: 17)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Permission : \(event.scope)").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xffd089))
+                    Text("Permission: \(event.scope)").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xffd089))
                     Text(gateDesc).font(.system(size: 11)).foregroundStyle(Color.emberMuted).fixedSize(horizontal: false, vertical: true)
                     if let warn = cloudWarn {
                         HStack(spacing: 5) {
@@ -671,16 +672,16 @@ private struct HerEventRow: View {
                 Spacer(minLength: 0)
             }
             HStack(spacing: 6) {
-                Button(action: onAllow)  { gateLabel("Autoriser", fill: true) }.buttonStyle(.plain)
+                Button(action: onAllow)  { gateLabel("Allow", fill: true) }.buttonStyle(.plain)
                 if !isTier3 {
-                    Button(action: onAlways) { gateLabel("Toujours", fill: false) }.buttonStyle(.plain)
+                    Button(action: onAlways) { gateLabel("Always", fill: false) }.buttonStyle(.plain)
                 }
-                Button(action: onDeny)   { gateLabel("Refuser", fill: false) }.buttonStyle(.plain)
+                Button(action: onDeny)   { gateLabel("Deny", fill: false) }.buttonStyle(.plain)
             }
             .padding(.leading, 27)
             Text(isTier3
-                 ? "Action sensible — Ember te redemandera à chaque fois (pas de « toujours »). Tu peux répondre « oui » / « non » à voix haute."
-                 : "« Toujours » = ne plus redemander pour CE chemin cette session. Tu peux aussi répondre « oui » / « non » à voix haute.")
+                 ? "Sensitive action — Ember will ask you every time (no “always”). You can answer “yes” / “no” out loud."
+                 : "“Always” = don't ask again for THIS path this session. You can also answer “yes” / “no” out loud.")
                 .font(.system(size: 10)).foregroundStyle(Color(hexv: 0x8a7a70))
                 .fixedSize(horizontal: false, vertical: true).padding(.leading, 27)
         }

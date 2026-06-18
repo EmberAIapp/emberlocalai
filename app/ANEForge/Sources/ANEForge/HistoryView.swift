@@ -7,7 +7,7 @@ struct HistoryView: View {
     @EnvironmentObject var state: AppState
 
     enum Lens: String, CaseIterable, Identifiable {
-        case tout = "Tout", conversation = "Conversation", travail = "Travail", creations = "Créations"
+        case tout = "All", conversation = "Conversation", travail = "Work", creations = "Creations"
         var id: String { rawValue }
     }
     @State private var lens: Lens = .tout
@@ -44,8 +44,8 @@ struct HistoryView: View {
     }
 
     private func dayLabel(_ date: Date, _ cal: Calendar) -> String {
-        if cal.isDateInToday(date) { return "Aujourd'hui" }
-        if cal.isDateInYesterday(date) { return "Hier" }
+        if cal.isDateInToday(date) { return "Today" }
+        if cal.isDateInYesterday(date) { return "Yesterday" }
         return date.formatted(.dateTime.weekday(.wide).day().month(.wide))
     }
 
@@ -58,8 +58,8 @@ struct HistoryView: View {
                 HStack(alignment: .center, spacing: 14) {
                     EmberOrb(mode: .ecoute, size: 34).frame(width: 34, height: 34)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Historique & créations").font(.emberSerif(26)).foregroundStyle(.emberInk)
-                        Text("Reviens à chaque étape clé. \(Text("Tout reste sur ton Mac.").foregroundColor(Color(hexv: 0x7fd095)))")
+                        Text("History & creations").font(.emberSerif(26)).foregroundStyle(.emberInk)
+                        Text("Go back to every key step. \(Text("Everything stays on your Mac.").foregroundColor(Color(hexv: 0x7fd095)))")
                             .font(.system(size: 13)).foregroundStyle(.emberMuted)
                     }
                     Spacer()
@@ -67,13 +67,13 @@ struct HistoryView: View {
                         Button { showingClear = true } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "trash").font(.system(size: 11))
-                                Text("Tout effacer").font(.system(size: 12, weight: .medium))
+                                Text("Clear all").font(.system(size: 12, weight: .medium))
                             }
                             .foregroundStyle(Color(hexv: 0xd88a72))
                             .padding(.vertical, 6).padding(.horizontal, 12)
                             .background(Capsule().strokeBorder(Color(hexv: 0xd85a30).opacity(0.4), lineWidth: 1))
                         }
-                        .buttonStyle(.plain).help("Effacer tout l'historique de cette IA")
+                        .buttonStyle(.plain).help("Clear this AI's entire history")
                     }
                 }
 
@@ -84,14 +84,14 @@ struct HistoryView: View {
                     }
                     Spacer()
                     if creationCount > 0 {
-                        Text("\(creationCount) création\(creationCount > 1 ? "s" : "")")
+                        Text("\(creationCount) creation\(creationCount > 1 ? "s" : "")")
                             .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x8a9b8e))
                     }
                 }
 
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x9a8d84))
-                    TextField("Rechercher dans l'historique…", text: $query)
+                    TextField("Search in history…", text: $query)
                         .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
                     if !query.isEmpty {
                         Button { query = "" } label: {
@@ -107,8 +107,8 @@ struct HistoryView: View {
                     VStack(spacing: 8) {
                         Image(systemName: query.isEmpty ? "clock" : "magnifyingglass").font(.system(size: 26)).foregroundStyle(Color(hexv: 0x6a5b52))
                         Text(state.history.isEmpty
-                             ? "Rien encore. Parle à Ember ou confie-lui une tâche — tout s'archivera ici."
-                             : (query.isEmpty ? "Aucun élément dans cette lentille." : "Aucun résultat pour « \(query) »."))
+                             ? "Nothing yet. Talk to Ember or give her a task — everything will be archived here."
+                             : (query.isEmpty ? "No items in this lens." : "No results for \"\(query)\"."))
                             .font(.system(size: 13)).foregroundStyle(.emberMuted).multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity).padding(.top, 60)
@@ -127,11 +127,11 @@ struct HistoryView: View {
             .frame(maxWidth: 920, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .alert("Tout effacer ?", isPresented: $showingClear) {
-            Button("Annuler", role: .cancel) {}
-            Button("Tout effacer", role: .destructive) { state.clearHistory() }
+        .alert("Clear all?", isPresented: $showingClear) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear all", role: .destructive) { state.clearHistory() }
         } message: {
-            Text("Efface tout l'historique de cette IA (conversation, travail, créations) et le fil. Les fichiers déjà générés restent sur ton Mac.")
+            Text("Clears this AI's entire history (conversation, work, creations) and the thread. Files already generated stay on your Mac.")
         }
     }
 
@@ -160,7 +160,7 @@ struct HistoryView: View {
                 Image(systemName: "trash").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x8a7d75))
                     .frame(width: 26, height: 26)
             }
-            .buttonStyle(.plain).help("Supprimer cette entrée")
+            .buttonStyle(.plain).help("Delete this entry")
         }
         .padding(.vertical, 11).padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -170,21 +170,21 @@ struct HistoryView: View {
     @ViewBuilder private func actions(_ item: TimelineItem) -> some View {
         if item.kind == .creation, let p = item.path {
             HStack(spacing: 7) {
-                Button { state.openPath(p) } label: { pill("Ouvrir", filled: true) }.buttonStyle(.plain)
-                Button { state.revealPath(p) } label: { pill("Révéler", filled: false) }.buttonStyle(.plain)
+                Button { state.openPath(p) } label: { pill("Open", filled: true) }.buttonStyle(.plain)
+                Button { state.revealPath(p) } label: { pill("Reveal", filled: false) }.buttonStyle(.plain)
             }
         } else {
             Button { state.jumpToHistory(item.id) } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.uturn.backward").font(.system(size: 10, weight: .semibold))
-                    Text("Revenir").font(.system(size: 11.5, weight: .medium))
+                    Text("Go back").font(.system(size: 11.5, weight: .medium))
                 }
                 .foregroundStyle(Color(hexv: 0xd8c6ba))
                 .padding(.vertical, 5).padding(.horizontal, 11)
                 .background(Capsule().fill(.white.opacity(0.05)))
             }
             .buttonStyle(.plain)
-            .help("Revenir à cette étape dans Her")
+            .help("Go back to this step in Her")
         }
     }
 
@@ -218,10 +218,10 @@ struct HistoryView: View {
     }
     private func label(_ k: TimelineItem.Kind) -> String {
         switch k {
-        case .you:      return "TOI"
+        case .you:      return "YOU"
         case .ember:    return "EMBER"
-        case .task:     return "TRAVAIL"
-        case .creation: return "CRÉATION"
+        case .task:     return "WORK"
+        case .creation: return "CREATION"
         }
     }
 }

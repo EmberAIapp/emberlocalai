@@ -14,33 +14,33 @@ struct SettingsScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // Header — title 30px serif #f5e7db, subtitle 14px #9a8d84 mb 26
-                Text("Réglages")
+                Text("Settings")
                     .font(.emberSerif(30, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xf5e7db))
                     .padding(.bottom, 4)
-                Text("Tout en langage humain. Aucun jargon, aucune télémétrie.")
+                Text("All in plain human language. No jargon, no telemetry.")
                     .font(.system(size: 14))
                     .foregroundStyle(Color(hexv: 0x9a8d84))
                     .padding(.bottom, 26)
 
                 // PROFIL — rename / delete the selected AI (full CRUD on the profile)
-                SectionLabel("Profil")
+                SectionLabel("Profile")
                     .padding(.bottom, 13)
                 profileSection
                     .padding(.bottom, 30)
 
                 // MODÈLE DE BASE
-                SectionLabel("Modèle de base")
+                SectionLabel("Base model")
                     .padding(.bottom, 13)
                 modelGrid
 
                 // CLÉ API — for the Mode Her work-agent (DeepSeek). Stored locally only, editable.
-                SectionLabel("Clé API · agent de travail (cloud)")
+                SectionLabel("API key · work agent (cloud)")
                     .padding(.top, 30).padding(.bottom, 13)
                 apiKeyRow
 
                 // PERSONA · COMMENT ELLE SE COMPORTE
-                SectionLabel("Persona · comment elle se comporte")
+                SectionLabel("Persona · how she behaves")
                     .padding(.top, 30)
                     .padding(.bottom, 13)
                 personaPanel
@@ -56,7 +56,7 @@ struct SettingsScreen: View {
                     .padding(.top, 18)
 
                 // PERMISSIONS DU MODE HER · GRANULAIRES, RÉVOCABLES
-                SectionLabel("Permissions du mode Her · granulaires, révocables")
+                SectionLabel("Her Mode permissions · granular, revocable")
                     .padding(.top, 30)
                     .padding(.bottom, 13)
                 permissionsList
@@ -73,13 +73,13 @@ struct SettingsScreen: View {
         .onChange(of: state.selected?.name) {
             Task { await reload() }
         }
-        .alert("Supprimer cette IA ?", isPresented: $showDelete) {
-            Button("Annuler", role: .cancel) {}
-            Button("Supprimer", role: .destructive) {
+        .alert("Delete this AI?", isPresented: $showDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
                 if let name = state.selected?.name { Task { await state.deleteModel(name) } }
             }
         } message: {
-            Text("« \(state.selected?.name ?? "") » et toute sa mémoire seront définitivement supprimées de ce Mac.")
+            Text("“\(state.selected?.name ?? "")” and all its memory will be permanently deleted from this Mac.")
         }
     }
 
@@ -109,14 +109,14 @@ struct SettingsScreen: View {
     private var profileSection: some View {
         HStack(spacing: 12) {
             EmberOrb(mode: state.orbMode, size: 26).frame(width: 26, height: 26)
-            TextField("son nom", text: $profileName)
+            TextField("her name", text: $profileName)
                 .textFieldStyle(.plain)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.emberInk)
                 .onSubmit(commitRename)
                 .disabled(state.selected == nil)
             if canRename {
-                Button("Renommer", action: commitRename)
+                Button("Rename", action: commitRename)
                     .buttonStyle(.plain)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Color(hexv: 0xff8a48))
@@ -125,7 +125,7 @@ struct SettingsScreen: View {
             Button { showDelete = true } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "trash")
-                    Text("Supprimer cette IA")
+                    Text("Delete this AI")
                 }
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(Color(hexv: 0xff6b5a))
@@ -164,11 +164,11 @@ struct SettingsScreen: View {
             if let loading = state.modelLoading {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Chargement du modèle… (téléchargement au 1er usage) — \(loading.components(separatedBy: "/").last ?? loading)")
+                    Text("Loading model… (downloads on first use) — \(loading.components(separatedBy: "/").last ?? loading)")
                         .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9a8d84))
                 }
             } else {
-                Text("Modèle actif : \(state.currentModelId.components(separatedBy: "/").last ?? "—") · 100% local · change quand tu veux")
+                Text("Active model: \(state.currentModelId.components(separatedBy: "/").last ?? "—") · 100% local · switch whenever you like")
                     .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x7fa98a))
             }
         }
@@ -179,15 +179,15 @@ struct SettingsScreen: View {
             HStack(spacing: 10) {
                 Image(systemName: state.hasKey ? "key.fill" : "key")
                     .foregroundStyle(state.hasKey ? Color(hexv: 0x7fd095) : Color(hexv: 0x9a8d84))
-                SecureField(state.hasKey ? "•••• clé enregistrée (laisse vide pour garder)" : "Colle ta clé DeepSeek (sk-…)",
+                SecureField(state.hasKey ? "•••• key saved (leave empty to keep)" : "Paste your DeepSeek key (sk-…)",
                             text: $apiKey)
                     .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
-                Button("Enregistrer") { state.setKey(apiKey); apiKey = "" }
+                Button("Save") { state.setKey(apiKey); apiKey = "" }
                     .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
                     .foregroundStyle(apiKey.trimmingCharacters(in: .whitespaces).isEmpty ? Color(hexv: 0x6a5e57) : Color(hexv: 0xff7a3a))
                     .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
                 if state.hasKey {
-                    Button("Effacer") { state.setKey("") }
+                    Button("Clear") { state.setKey("") }
                         .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(Color(hexv: 0x9a8d84))
                 }
             }
@@ -195,8 +195,8 @@ struct SettingsScreen: View {
             .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.04)))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color(hexv: 0xff965a).opacity(0.18), lineWidth: 1))
             Text(state.hasKey
-                 ? "Clé stockée localement (~/.aneforge) — l'agent de travail du Mode Her est actif."
-                 : "Sans clé, l'agent de travail (tâches) est désactivé. La conversation + la voix marchent sans clé.")
+                 ? "Key stored locally (~/.aneforge) — Her Mode's work agent is active."
+                 : "Without a key, the work agent (tasks) is off. Conversation + voice work without a key.")
                 .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9a8d84))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -240,19 +240,19 @@ struct SettingsScreen: View {
     // MARK: 3) Sliders — grid 1fr 1fr gap 26
 
     private var lengthLabel: String {
-        if maxTokens <= 48 { return "Courte" }
-        if maxTokens <= 128 { return "Équilibrée" }
-        return "Longue"
+        if maxTokens <= 48 { return "Short" }
+        if maxTokens <= 128 { return "Balanced" }
+        return "Long"
     }
 
     private var slidersRow: some View {
         HStack(alignment: .top, spacing: 26) {
-            SettingsSlider(title: "Longueur des réponses",
+            SettingsSlider(title: "Reply length",
                            valueText: lengthLabel,
                            value: $maxTokens,
                            range: 16...256,
                            step: 8)
-            SettingsSlider(title: "Créativité (température)",
+            SettingsSlider(title: "Creativity (temperature)",
                            valueText: String(format: "%.1f", temperature),
                            value: $temperature,
                            range: 0...1,
@@ -265,7 +265,7 @@ struct SettingsScreen: View {
     private var saveRow: some View {
         HStack {
             Spacer(minLength: 0)
-            EmberCTA(title: "Enregistrer", size: 13) {
+            EmberCTA(title: "Save", size: 13) {
                 if let name = state.selected?.name {
                     Task { await state.saveSettings(name, persona: personaText, maxTokens: Int(maxTokens), temperature: temperature) }
                 }
@@ -280,7 +280,7 @@ struct SettingsScreen: View {
             ForEach(Array(DesignData.permissions.enumerated()), id: \.offset) { _, p in
                 SettingsPermissionRow(
                     icon: p.icon,
-                    name: p.key,
+                    name: p.label,
                     desc: p.desc,
                     isOn: state.permissions[p.key] ?? false
                 ) {
@@ -307,19 +307,19 @@ struct SettingsScreen: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("Confidentialité — local par défaut")
+                Text("Privacy — local by default")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color(hexv: 0xbfe9c9))
                 Text(state.hasKey
-                     ? "Chat, mémoire et apprentissage restent 100% sur ce Mac. Le Mode Her peut utiliser DeepSeek (cloud) — uniquement ce que tu autorises, tâche par tâche."
-                     : "Chat, mémoire et apprentissage restent 100% sur ce Mac. Aucun cerveau cloud n'est configuré : tout est local.")
+                     ? "Chat, memory and learning stay 100% on this Mac. Her Mode can use DeepSeek (cloud) — only what you allow, task by task."
+                     : "Chat, memory and learning stay 100% on this Mac. No cloud brain is configured: everything is local.")
                     .font(.system(size: 12.5))
                     .foregroundStyle(Color(hexv: 0x9bbfa3))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(state.hasKey ? "cloud : sur accord" : "100% local")
+            Text(state.hasKey ? "cloud: on consent" : "100% local")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(state.hasKey ? Color(hexv: 0xffb877) : Color(hexv: 0x7fd095))
                 .padding(.vertical, 8)

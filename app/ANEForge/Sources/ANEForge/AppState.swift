@@ -67,7 +67,7 @@ final class AppState: ObservableObject {
 
     // Réglages (UI state — persona + length are persisted to the engine on save)
     @Published var selectedModelIndex = 1
-    @Published var personaSel = "Calme"
+    @Published var personaSel = "Calm"
     @Published var permissions = AppState.loadPermissions()
 
     static func loadPermissions() -> [String: Bool] {
@@ -388,7 +388,7 @@ final class AppState: ObservableObject {
             let mode = await engine.route(name: name, message: text)
             herMode = mode
             if mode == "task" {
-                let ack = "D'accord, je m'en occupe."
+                let ack = "Got it, I'm on it."
                 herConversation.append(HerTurn(role: .ember, text: ack, working: true))
                 herSpeak = SpeakRequest(text: ack, lang: herLang)
                 runAgentTask(text)                       // fills agentEvents; speaks summary on done (persiste la tâche)
@@ -407,7 +407,7 @@ final class AppState: ObservableObject {
                     }
                 } catch { }
                 if Task.isCancelled {
-                    setTurnText(tid, acc.isEmpty ? "(interrompu)" : acc + " ⏹")
+                    setTurnText(tid, acc.isEmpty ? "(interrupted)" : acc + " ⏹")
                 } else if acc.isEmpty {
                     setTurnText(tid, "…")
                 }
@@ -427,7 +427,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Real agent (Mode Her): DeepSeek brain + local tools, live stream + permission gates
     func runAgentTask(_ task: String) {
-        guard let name = selected?.name else { errorText = "Choisis (ou crée) d'abord une IA."; return }
+        guard let name = selected?.name else { errorText = "Choose (or create) an AI first."; return }
         let t = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !agentBusy else { return }
         agentEvents = []; agentPendingGate = nil; agentSession = nil; agentBusy = true
@@ -466,8 +466,10 @@ final class AppState: ObservableObject {
     func voiceGateAnswer(_ s: String) -> Bool? {
         let k = s.lowercased().trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
         let yes = ["oui", "ouais", "ok", "okay", "d'accord", "daccord", "vas-y", "vas y", "vasy",
-                   "autorise", "autoriser", "autorisé", "go", "yes", "bien sûr", "bien sur", "carrément", "carrement"]
-        let no = ["non", "refuse", "refuser", "refusé", "annule", "annuler", "pas maintenant", "surtout pas", "no"]
+                   "autorise", "autoriser", "autorisé", "go", "yes", "bien sûr", "bien sur", "carrément", "carrement",
+                   "yeah", "yep", "yup", "sure", "of course", "allow", "approve", "go ahead", "do it"]
+        let no = ["non", "refuse", "refuser", "refusé", "annule", "annuler", "pas maintenant", "surtout pas", "no",
+                  "nope", "deny", "don't", "dont", "cancel", "not now", "never"]
         if yes.contains(k) || yes.contains(where: { k.hasPrefix($0 + " ") }) { return true }
         if no.contains(k) || no.contains(where: { k.hasPrefix($0 + " ") }) { return false }
         return nil
@@ -506,7 +508,7 @@ final class AppState: ObservableObject {
 
     func teachPaths(_ urls: [URL], full: Bool = false) async {
         guard let name = selected?.name else {
-            errorText = "Choisis (ou crée) d'abord une IA."; return
+            errorText = "Choose (or create) an AI first."; return
         }
         guard !isLearning, !urls.isEmpty else { return }
         isLearning = true; trainingLog = []; lastLearned = []; defer { isLearning = false }
@@ -519,14 +521,14 @@ final class AppState: ObservableObject {
         let cap = full ? 250 : Self.fileCap
         let all = Self.expandToFiles(urls, cap: cap)
         guard !all.isEmpty else {
-            errorText = "Aucun fichier .txt/.md/.pdf à apprendre ici."; return
+            errorText = "No .txt/.md/.pdf files to learn from here."; return
         }
         let files = Array(all.prefix(cap))
         var done = 0, stopped = false
         for url in files {
             if Task.isCancelled { stopped = true; break }   // « Arrêter » honoré
             done += 1
-            trainingLog.append("Lecture de \(url.lastPathComponent)… (\(done)/\(files.count))")
+            trainingLog.append("Reading \(url.lastPathComponent)… (\(done)/\(files.count))")
             if let text = Self.readText(url),
                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 _ = try? await engine.ingest(name: name, text: text, source: url.path)
@@ -537,11 +539,11 @@ final class AppState: ObservableObject {
         facts = after
         profileText = await engine.profile(name: name)
         if stopped {
-            trainingLog.append("⏹ Arrêté — \(lastLearned.count) fait(s) appris (\(done)/\(files.count) fichiers)")
+            trainingLog.append("⏹ Stopped — \(lastLearned.count) fact(s) learned (\(done)/\(files.count) files)")
         } else if all.count > files.count {
-            trainingLog.append("✦ \(lastLearned.count) fait(s) appris · \(files.count)/\(all.count) fichiers (plafond \(cap))")
+            trainingLog.append("✦ \(lastLearned.count) fact(s) learned · \(files.count)/\(all.count) files (cap \(cap))")
         } else {
-            trainingLog.append("✦ \(lastLearned.count) fait(s) appris depuis \(files.count) fichier(s)")
+            trainingLog.append("✦ \(lastLearned.count) fact(s) learned from \(files.count) file(s)")
         }
     }
 
@@ -595,7 +597,7 @@ final class AppState: ObservableObject {
             .map { home.appendingPathComponent($0) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !roots.isEmpty else {
-            errorText = "Emplacements personnels introuvables."; return
+            errorText = "Couldn't find your personal locations."; return
         }
         // Scan direct (sans persister 3 connecteurs fantômes) — annulable via « Arrêter ».
         learn(roots, full: true)
@@ -626,7 +628,7 @@ final class AppState: ObservableObject {
     /// `full` = whole-Mac scan cap. This is the « Apprentissage complet » entry point too.
     func connectFolders(_ urls: [URL], full: Bool = false) {
         guard let ia = selected?.name else {
-            errorText = "Choisis (ou crée) d'abord une IA."; return
+            errorText = "Choose (or create) an AI first."; return
         }
         var dict = (UserDefaults.standard.dictionary(forKey: foldersKey(ia)) as? [String: Data]) ?? [:]
         for url in urls {
@@ -648,7 +650,7 @@ final class AppState: ObservableObject {
         var stale = false
         guard let url = try? URL(resolvingBookmarkData: data, options: [],
                                  relativeTo: nil, bookmarkDataIsStale: &stale) else {
-            errorText = "Dossier introuvable : \(path)"; return
+            errorText = "Folder not found: \(path)"; return
         }
         learn([url])
     }
@@ -679,21 +681,21 @@ final class AppState: ObservableObject {
     /// REAL Apple Notes connector (§4.A) — read the user's notes locally and learn facts from them.
     func teachNotes() async {
         guard let name = selected?.name else {
-            errorText = "Choisis (ou crée) d'abord une IA."; return
+            errorText = "Choose (or create) an AI first."; return
         }
         guard !isLearning else { return }
         isLearning = true; trainingLog = []; defer { isLearning = false }
-        trainingLog.append("Lecture de tes notes Apple…")
+        trainingLog.append("Reading your Apple Notes…")
         do {
             let r = try await engine.ingestNotes(name: name)
             if r.total == 0 {
-                errorText = "Aucune note accessible — autorise Ember dans Réglages › Confidentialité › Automatisation › Notes."
+                errorText = "No accessible notes — allow Ember in Settings › Privacy › Automation › Notes."
             } else {
-                trainingLog.append("✦ \(r.learned) fait(s) appris depuis \(r.notes) note(s) (sur \(r.total))")
+                trainingLog.append("✦ \(r.learned) fact(s) learned from \(r.notes) note(s) (of \(r.total))")
             }
             await loadFacts(name)
         } catch {
-            errorText = "Lecture des notes impossible : \(error.localizedDescription)"
+            errorText = "Couldn't read the notes: \(error.localizedDescription)"
         }
     }
 
@@ -754,7 +756,7 @@ final class AppState: ObservableObject {
             record(TimelineItem(date: Date(), kind: .creation, text: r.title,
                                 detail: "Document · 100% local", path: url.path))
         } catch {
-            errorText = "Génération impossible : \(error.localizedDescription)"
+            errorText = "Couldn't generate: \(error.localizedDescription)"
         }
     }
 

@@ -280,66 +280,66 @@ def _exec(name, args, ia):
             fn += ".md"
         path = DRAFTS / fn
         path.write_text(args.get("content", ""))
-        return f"Note écrite : {path}"
+        return f"Note written: {path}"
 
     # --- P1 ecosystem tools (all execute LOCALLY via subprocess/osascript) ---
     if name == "open_app":
         app = (args.get("name") or "").strip()
         if not app:
-            return "Nom d'app manquant."
+            return "Missing app name."
         ok, msg = _launch(app, settle=0.2)
         return msg
     if name == "open_url":
         url = (args.get("url") or "").strip()
         scheme = urllib.parse.urlparse(url).scheme.lower()
         if scheme not in ("http", "https", "mailto"):
-            return f"Lien refusé (schéma « {scheme or '∅'} » ; http/https/mailto uniquement)."
+            return f"Link refused (scheme “{scheme or '∅'}”; http/https/mailto only)."
         try:
             r = subprocess.run(["open", url], capture_output=True, text=True, timeout=10)
         except Exception as e:
             return f"Erreur : {e}"
-        return f"Ouvert : {url}" if r.returncode == 0 else f"Lien impossible : {(r.stderr or '').strip()[:140]}"
+        return f"Opened: {url}" if r.returncode == 0 else f"Couldn’t open link: {(r.stderr or '').strip()[:140]}"
     if name == "reveal_in_finder":
         p = str(Path(args.get("path", "")).expanduser())
         try:
             r = subprocess.run(["open", "-R", p], capture_output=True, text=True, timeout=10)
         except Exception as e:
             return f"Erreur : {e}"
-        return f"Révélé dans le Finder : {p}" if r.returncode == 0 else f"Introuvable : {p}"
+        return f"Revealed in Finder: {p}" if r.returncode == 0 else f"Not found: {p}"
     if name == "spotlight_search":
         q = (args.get("query") or "").strip()
         if not q:
-            return "Requête vide."
+            return "Empty query."
         out = _run(["mdfind", "-name", q] if args.get("by_name") else ["mdfind", q], 15)
         lines = [l for l in out.splitlines() if l and "mdfind[" not in l and "UserQueryParser" not in l][:40]
-        return "\n".join(lines) if lines else "Aucun résultat."
+        return "\n".join(lines) if lines else "No results."
     if name == "search_text":
         pat = args.get("pattern", "")
         p = str(Path(args.get("path", "")).expanduser())
         out = _run(["grep", "-rIn", "--", pat, p], 20)
         lines = out.splitlines()[:50]
-        return "\n".join(lines) if lines and "Erreur" not in out else (out or "Aucune correspondance.")
+        return "\n".join(lines) if lines and "Erreur" not in out else (out or "No matches.")
     if name == "read_clipboard":
         return _run(["pbpaste"], 5)
     if name == "notify":
         t = (args.get("title") or "Ember").replace('"', "'")
         b = (args.get("body") or "").replace('"', "'")
         _osa(f'display notification "{b}" with title "{t}"', 8)
-        return "Notification affichée."
+        return "Notification shown."
     if name == "read_notes":
         ok, msg = _launch("Notes")
         if not ok:
             return msg
         out = _osa('tell application "Notes" to get name of notes', 25)
         items = [x.strip() for x in out.split(",") if x.strip()][:30]
-        return "Notes : " + " · ".join(items) if items else "Aucune note."
+        return "Notes: " + " · ".join(items) if items else "No notes."
     if name == "read_reminders":
         ok, msg = _launch("Reminders")
         if not ok:
             return msg
         out = _osa('tell application "Reminders" to get name of (reminders whose completed is false)', 25)
         items = [x.strip() for x in out.split(",") if x.strip()][:40]
-        return "Rappels : " + " · ".join(items) if items else "Aucun rappel ouvert."
+        return "Reminders: " + " · ".join(items) if items else "No open reminders."
     if name == "read_calendar":
         ok, msg = _launch("Calendar")
         if not ok:
@@ -351,7 +351,7 @@ def _exec(name, args, ia):
                   'return ev')
         out = _osa(script, 30)
         items = [x.strip() for x in out.split(",") if x.strip()][:30]
-        return "Aujourd'hui : " + " · ".join(items) if items else "Rien au calendrier aujourd'hui."
+        return "Today: " + " · ".join(items) if items else "Nothing on the calendar today."
 
     # --- P2 ecosystem (write/create, reversible) ---
     if name == "write_clipboard":
@@ -359,21 +359,21 @@ def _exec(name, args, ia):
             subprocess.run(["pbcopy"], input=args.get("text", ""), text=True, timeout=5)
         except Exception as e:
             return f"Erreur : {e}"
-        return "Copié dans le presse-papiers."
+        return "Copied to the clipboard."
     if name == "create_note":
         ok, msg = _launch("Notes")
         if not ok:
             return msg
         _osa(f'tell application "Notes" to make new note with properties '
              f'{{name:"{_esc(args.get("title","Note"))}", body:"{_esc(args.get("body",""))}"}}', 20)
-        return f"Note créée : {args.get('title','Note')}"
+        return f"Note created: {args.get('title','Note')}"
     if name == "create_reminder":
         ok, msg = _launch("Reminders")
         if not ok:
             return msg
         _osa(f'tell application "Reminders" to make new reminder with properties '
              f'{{name:"{_esc(args.get("text","Rappel"))}"}}', 20)
-        return f"Rappel créé : {args.get('text','')}"
+        return f"Reminder created: {args.get('text','')}"
     if name == "create_event":
         ok, msg = _launch("Calendar")
         if not ok:
@@ -382,7 +382,7 @@ def _exec(name, args, ia):
         try:
             dt = datetime.fromisoformat(args.get("start", "").replace("/", "-").strip())
         except Exception:
-            return "Date invalide (attendu « AAAA-MM-JJ HH:MM »)."
+            return "Invalid date (expected “YYYY-MM-DD HH:MM”)."
         dur = int(args.get("duration_min") or 60)
         script = (f'set d to current date\nset year of d to {dt.year}\nset month of d to {dt.month}\n'
                   f'set day of d to {dt.day}\nset hours of d to {dt.hour}\nset minutes of d to {dt.minute}\n'
@@ -390,23 +390,23 @@ def _exec(name, args, ia):
                   f'tell application "Calendar" to tell calendar 1 to make new event with properties '
                   f'{{summary:"{_esc(args.get("title","Événement"))}", start date:d, end date:(d + {dur} * 60)}}')
         out = _osa(script, 25)
-        return f"Événement créé : {args.get('title','')} le {dt:%d/%m %H:%M}" if "error" not in out.lower() else f"Échec calendrier : {out[:120]}"
+        return f"Event created: {args.get('title','')} on {dt:%m/%d %H:%M}" if "error" not in out.lower() else f"Calendar failed: {out[:120]}"
     if name == "move_file":
         import shutil
         src = str(Path(args.get("src", "")).expanduser()); dst = str(Path(args.get("dst", "")).expanduser())
         try:
             shutil.move(src, dst)
         except Exception as e:
-            return f"Déplacement impossible : {e}"
-        return f"Déplacé : {src} → {dst}"
+            return f"Couldn’t move: {e}"
+        return f"Moved: {src} → {dst}"
     if name == "copy_file":
         import shutil
         src = str(Path(args.get("src", "")).expanduser()); dst = str(Path(args.get("dst", "")).expanduser())
         try:
             shutil.copy2(src, dst)
         except Exception as e:
-            return f"Copie impossible : {e}"
-        return f"Copié : {src} → {dst}"
+            return f"Couldn’t copy: {e}"
+        return f"Copied: {src} → {dst}"
     if name == "music_control":
         ok, msg = _launch("Music", settle=0.4)
         if not ok:
@@ -414,7 +414,7 @@ def _exec(name, args, ia):
         act = {"play": "play", "pause": "pause", "next": "next track",
                "previous": "previous track", "stop": "stop"}.get(args.get("action", "play"), "play")
         _osa(f'tell application "Music" to {act}', 10)
-        return f"Musique : {args.get('action','play')}"
+        return f"Music: {args.get('action','play')}"
     if name == "draft_mail":
         ok, msg = _launch("Mail")
         if not ok:
@@ -425,11 +425,11 @@ def _exec(name, args, ia):
                   + (f'tell m to make new to recipient with properties {{address:"{to}"}}\n' if to else '')
                   + 'end tell')
         _osa(script, 20)
-        return f"Brouillon de mail prêt{(' pour ' + args.get('to','')) if args.get('to') else ''} (NON envoyé)."
+        return f"Email draft ready{(' for ' + args.get('to','')) if args.get('to') else ''} (NOT sent)."
     if name == "run_shortcut":
         sc = (args.get("name") or "").strip()
         if not sc:
-            return "Nom du raccourci manquant."
+            return "Missing shortcut name."
         cmd = ["shortcuts", "run", sc]
         inp = args.get("input")
         if inp:
@@ -439,9 +439,9 @@ def _exec(name, args, ia):
         except Exception as e:
             return f"Erreur : {e}"
         if r.returncode != 0:
-            return f"Raccourci « {sc} » a échoué : {(r.stderr or '').strip()[:140] or 'introuvable'}"
-        return f"Raccourci « {sc} » exécuté. {(r.stdout or '').strip()[:140]}"
-    return "Outil inconnu."
+            return f"Shortcut “{sc}” failed: {(r.stderr or '').strip()[:140] or 'not found'}"
+        return f"Shortcut “{sc}” ran. {(r.stdout or '').strip()[:140]}"
+    return "Unknown tool."
 
 
 def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
@@ -462,24 +462,24 @@ def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": task}]
     emit({"type": "plan", "text": task})
     if stopped():
-        emit({"type": "done", "summary": "Arrêté."}); return
+        emit({"type": "done", "summary": "Stopped."}); return
     # CONSENTEMENT CLOUD explicite (§7) — rien ne part avant un OUI clair. Le cerveau est DeepSeek :
     # la tâche + les résultats d'outils (fichiers, notes, mémoire lus) y seront envoyés.
     if not ask_permission("__cloud__", {"task": task}, CLOUD_SCOPE):
-        emit({"type": "done", "summary": "Tâche annulée — envoi vers le cloud refusé. Rien n'est sorti."})
+        emit({"type": "done", "summary": "Task canceled — cloud upload refused. Nothing left your Mac."})
         return
     for _ in range(max_steps):
         if stopped():
-            emit({"type": "done", "summary": "Arrêté — aucune autre action."}); return
+            emit({"type": "done", "summary": "Stopped — no further action."}); return
         try:
             msg = _deepseek(messages, TOOLS)
         except Exception as e:
-            emit({"type": "error", "text": f"Agent indisponible : {e}"})
+            emit({"type": "error", "text": f"Agent unavailable: {e}"})
             return
         calls = msg.get("tool_calls") or []
         if not calls:
             text = (msg.get("content") or "").strip()
-            emit({"type": "done", "summary": text or "Terminé."})
+            emit({"type": "done", "summary": text or "Done."})
             return
         messages.append(msg)
         for c in calls:
@@ -489,19 +489,19 @@ def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
             except Exception:
                 args = {}
             if name == "finish":
-                emit({"type": "done", "summary": args.get("summary", "Terminé.")})
+                emit({"type": "done", "summary": args.get("summary", "Done.")})
                 return
             # Vérifie l'arrêt AVANT d'exécuter l'outil → aucune mutation (déplacement, brouillon mail,
             # événement…) ne se produit après « Stop ».
             if stopped():
-                emit({"type": "done", "summary": "Arrêté — action non exécutée."}); return
+                emit({"type": "done", "summary": "Stopped — action not run."}); return
             emit({"type": "tool", "name": name, "args": args})
             scope = SENSITIVE.get(name)
             if scope and not ask_permission(name, args, scope):
-                result = "Action refusée par l'utilisateur."
+                result = "Action refused by the user."
                 emit({"type": "observation", "name": name, "text": result, "denied": True})
             elif stopped():
-                emit({"type": "done", "summary": "Arrêté — action non exécutée."}); return
+                emit({"type": "done", "summary": "Stopped — action not run."}); return
             else:
                 try:
                     result = _exec(name, args, ia)
@@ -509,4 +509,4 @@ def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
                     result = f"Erreur : {e}"
                 emit({"type": "observation", "name": name, "text": str(result)[:600]})
             messages.append({"role": "tool", "tool_call_id": c["id"], "content": str(result)[:4000]})
-    emit({"type": "done", "summary": "Limite d'étapes atteinte."})
+    emit({"type": "done", "summary": "Step limit reached."})

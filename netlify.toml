@@ -1,0 +1,11 @@
+# Netlify config for emberlocalai.com — static marketing site lives in site/
+[build]
+  publish = "site"
+  # No build step: the site is plain HTML/CSS/JS.
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

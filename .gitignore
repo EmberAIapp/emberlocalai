@@ -50,3 +50,6 @@ app/ANEForge/ANEForge.app/
 app/ANEForge/.build/
 
 app/ANEForge/Ember.app/
+
+# Local Netlify folder
+.netlify
