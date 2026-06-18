@@ -167,9 +167,16 @@ private struct ConversationColumn: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            // Presence
+            // Presence — l'orbe EST le bouton (§3) : pendant le travail → interrompre ; sinon → voix.
             VStack(spacing: 18) {
-                EmberOrb(mode: state.orbMode, size: 88).frame(width: 88, height: 88)
+                Button {
+                    if state.isBusy || state.agentBusy || state.talking { state.interruptHer() }
+                    else { onMic() }
+                } label: {
+                    EmberOrb(mode: state.orbMode, size: 88).frame(width: 88, height: 88)
+                }
+                .buttonStyle(.plain)
+                .help(state.isBusy || state.agentBusy || state.talking ? "Interrompre" : "Parler (mains libres)")
                 VoiceWave(level: level).frame(width: 320, height: 70)
                 Text(caption)
                     .font(.emberSerif(18, weight: .regular).italic())

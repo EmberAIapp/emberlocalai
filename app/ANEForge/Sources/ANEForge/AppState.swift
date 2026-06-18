@@ -2,13 +2,6 @@ import SwiftUI
 import PDFKit
 import AppKit
 
-struct ChatMessage: Identifiable, Hashable {
-    enum Role { case user, assistant }
-    let id = UUID()
-    var role: Role
-    var text: String
-}
-
 /// One event from the real agent stream (Mode Her).
 struct AgentEvent: Identifiable, Hashable {
     let id = UUID()
@@ -41,7 +34,6 @@ enum MainView { case her, ingest, memory, settings }   // Her = la base ; les au
 final class AppState: ObservableObject {
     @Published var models: [PersonalModelInfo] = []
     @Published var selected: PersonalModelInfo?
-    @Published var messages: [ChatMessage] = []
     @Published var facts: [Fact] = []
     @Published var isBusy = false          // generating a reply
     @Published var isLearning = false      // ingesting / training
@@ -197,7 +189,7 @@ final class AppState: ObservableObject {
     /// Switch the active IA: load its conversation-agnostic memory and reset the view.
     func select(_ model: PersonalModelInfo?) {
         selected = model
-        messages = []
+        herConversation = []      // switch IA → fresh Her conversation
         facts = []
         switcherOpen = false
         if let m = model { Task { await loadFacts(m.name) } }
@@ -290,11 +282,16 @@ final class AppState: ObservableObject {
 
     /// One spoken or typed line from the user. Routes to conversation (local, streamed) or
     /// work (the DeepSeek agent), keeping a single visible timeline. Ember speaks her reply.
+    private var herTask: Task<Void, Never>?
+
+    /// Interrompre Her (§3) : coupe la réponse en cours (chat) OU le travail (agent), en gardant l'acquis.
+    func interruptHer() { herTask?.cancel(); stopAgentTask() }
+
     func herSend(_ raw: String) {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let name = selected?.name, !agentBusy else { return }
         herConversation.append(HerTurn(role: .user, text: text))
-        Task {
+        herTask = Task {
             let mode = await engine.route(name: name, message: text)
             herMode = mode
             if mode == "task" {
@@ -309,13 +306,18 @@ final class AppState: ObservableObject {
                 var acc = ""
                 do {
                     for try await delta in engine.chatStream(name: name, prompt: text) {
+                        if Task.isCancelled { break }
                         if acc.isEmpty { isBusy = false; talking = true }
                         acc += delta
                         if idx < herConversation.count { herConversation[idx].text = acc }
                     }
-                } catch { acc = "" }
-                if acc.isEmpty, idx < herConversation.count { herConversation[idx].text = "…" }
-                herSpeak = SpeakRequest(text: acc.isEmpty ? "" : acc, lang: herLang)
+                } catch { }
+                if Task.isCancelled, idx < herConversation.count {
+                    herConversation[idx].text = acc.isEmpty ? "(interrompu)" : acc + " ⏹"
+                } else if acc.isEmpty, idx < herConversation.count {
+                    herConversation[idx].text = "…"
+                }
+                herSpeak = SpeakRequest(text: (Task.isCancelled || acc.isEmpty) ? "" : acc, lang: herLang)
             }
         }
     }
@@ -609,7 +611,7 @@ final class AppState: ObservableObject {
         isBusy = true; defer { isBusy = false }
         do {
             try await engine.delete(name: name)
-            if selected?.name == name { selected = nil; messages = [] }
+            if selected?.name == name { selected = nil; herConversation = [] }
             await refresh()
         } catch { errorText = error.localizedDescription }
     }
@@ -675,42 +677,4 @@ final class AppState: ObservableObject {
         catch { errorText = error.localizedDescription }
     }
 
-    private var chatTask: Task<Void, Never>?
-
-    /// Start a reply (cancellable). The orb « interrompre » (§3) cancels this.
-    func sendChat(_ prompt: String) {
-        chatTask?.cancel()
-        chatTask = Task { await self.send(prompt) }
-    }
-    /// Interrupt the running generation — keeps the text already streamed (§3 « interrompre »).
-    func stopGeneration() { chatTask?.cancel() }
-
-    func send(_ prompt: String) async {
-        guard let name = selected?.name, !prompt.isEmpty else { return }
-        messages.append(ChatMessage(role: .user, text: prompt))
-        let idx = messages.count
-        messages.append(ChatMessage(role: .assistant, text: ""))   // fill token-by-token
-        isBusy = true                       // reflexion while waiting for the first token
-        defer { isBusy = false; talking = false }
-        var acc = ""
-        do {
-            for try await delta in engine.chatStream(name: name, prompt: prompt) {
-                if Task.isCancelled { break }
-                if acc.isEmpty { isBusy = false; talking = true }   // first token → parle (ondulations §3)
-                acc += delta
-                if idx < messages.count { messages[idx].text = acc }
-            }
-            if Task.isCancelled, idx < messages.count {
-                messages[idx].text = acc.isEmpty ? "(interrompu)" : acc + " ⏹"
-            } else if acc.isEmpty, idx < messages.count {
-                messages[idx].text = "…"
-            }
-        } catch {
-            if Task.isCancelled || (error is CancellationError) {
-                if idx < messages.count { messages[idx].text = acc.isEmpty ? "(interrompu)" : acc + " ⏹" }
-            } else if idx < messages.count {
-                messages[idx].text = "⚠️ \(error.localizedDescription)"
-            }
-        }
-    }
 }
