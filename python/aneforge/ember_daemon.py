@@ -367,9 +367,9 @@ class Engine:
         if existing:
             try:
                 facts = "\n".join(f"- {t}" for t in existing[:40])
-                sysmsg = ("Résume en 2-3 phrases, à la 2e personne (« tu »), ce que l'on sait de "
-                          "l'utilisateur à partir de ces faits. Reste fidèle, n'invente rien, garde "
-                          "la langue des faits.")
+                sysmsg = ("In 2-3 sentences, addressing the user as \"you\", summarise what is "
+                          "known about this user from these facts. Stay faithful, invent nothing, "
+                          "and write in the SAME LANGUAGE as the facts.")
                 with self._lock:
                     profile = self.mlx.chat([{"role": "system", "content": sysmsg},
                                              {"role": "user", "content": facts}], max_tokens=160)
