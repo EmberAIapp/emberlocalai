@@ -220,22 +220,23 @@ final class AppState: ObservableObject {
     private static let restoreCap = 80       // fil vivant restauré ; au-delà → expansion à la demande
     private var saveTask: Task<Void, Never>?
 
-    /// Enregistre une étape clé dans la timeline locale et la sauve (par IA, 100% local).
+    /// Enregistre une étape clé : append DURABLE immédiat (journal, crash-safe) + sauvegarde de base
+    /// coalescée. 100% local, par IA.
     private func record(_ item: TimelineItem) {
         history.append(item)
         if history.count > Self.historyCap { history.removeFirst(history.count - Self.historyCap) }
+        if let name = selected?.name { HistoryStore.appendJournalSync(name, item) }   // durable tout de suite
         persistHistory()
     }
 
-    /// Sauvegarde COALESCÉE : en streaming, un token = un record ; on regroupe les écritures en UNE
-    /// après un court délai → fini la réécriture du fichier entier à chaque token (régression de perf).
+    /// Sauvegarde de BASE coalescée (le journal, lui, est déjà durable). Le snapshot est pris à la FIN
+    /// du délai (pas à la planification) → il inclut tous les records arrivés entre-temps.
     private func persistHistory() {
-        guard let name = selected?.name else { return }
-        let snapshot = history
         saveTask?.cancel()
-        saveTask = Task { [historyStore] in
+        saveTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 600_000_000)
-            if Task.isCancelled { return }
+            guard !Task.isCancelled, let name = selected?.name else { return }
+            let snapshot = history
             await historyStore.save(name, snapshot)
         }
     }
@@ -253,7 +254,7 @@ final class AppState: ObservableObject {
     func deleteHistoryItem(_ id: UUID) {
         history.removeAll { $0.id == id }
         herConversation.removeAll { $0.id == id }
-        persistHistory()
+        flushHistory()        // compacte (base + vide le journal) → l'entrée supprimée ne revient pas
     }
 
     /// CRUD — efface TOUT l'historique de l'IA courante (fil compris). Les fichiers générés restent sur le disque.
@@ -261,7 +262,7 @@ final class AppState: ObservableObject {
         herTask?.cancel()
         history = []
         herConversation = []
-        persistHistory()
+        flushHistory()        // compacte → journal purgé, rien ne ressuscite
     }
 
     /// Restaure le fil (derniers messages) + charge la timeline pour les lentilles Historique/Créations.
