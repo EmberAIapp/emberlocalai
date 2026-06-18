@@ -77,12 +77,13 @@ struct TopBar: View {
 
     var body: some View {
         GeometryReader { geo in
-            let usable = geo.size.width                       // largeur à droite des feux (post padding)
-            let compact = usable < 760                        // → onglets en icône, pastille en point
-            let nameMax: CGFloat = usable >= 980 ? 240 : (usable >= 760 ? 180 : 120)
+            let usable = geo.size.width                       // largeur pleine de la fenêtre
+            // 4 onglets + pastille à droite, nom centré : sous cette largeur on passe en icônes
+            // seules pour garantir que le nom centré ne touche jamais « Apprendre ».
+            let compact = usable < 1140
             ZStack {
                 // Centre : le nom de l'IA (sélecteur) — « le nom de l'IA au centre ».
-                switcher(nameMax: nameMax)
+                switcher
                 HStack(spacing: 10) {
                     // À gauche : revenir à Her quand on est en coulisse (remplace « Quitter »).
                     if state.view != .her {
@@ -106,13 +107,14 @@ struct TopBar: View {
                     NavTab(icon: "gearshape",              label: "Réglages",   target: .settings, showLabel: !compact)
                     LocalPill(compact: compact)
                 }
-                .padding(.horizontal, 16)
+                // Le contenu s'écarte des feux natifs à gauche ; le sélecteur, lui, reste centré
+                // sur TOUTE la largeur (donc aligné avec l'orbe en dessous).
+                .padding(.leading, 78).padding(.trailing, 16)
             }
             .frame(height: 48)                                // clamp interne (GeometryReader est gourmand)
             .animation(.easeInOut(duration: 0.16), value: compact)
         }
         .frame(height: 48)                                   // clamp externe — garde le rythme 48pt
-        .padding(.leading, 78)                               // encoche des feux natifs
         .background(barBackground)                           // remplace .ultraThinMaterial
     }
 
@@ -132,7 +134,7 @@ struct TopBar: View {
         }
     }
 
-    private func switcher(nameMax: CGFloat) -> some View {
+    private var switcher: some View {
         let name = state.selected?.name ?? "Ember"
         // Honest badge: how many facts Ember knows (real), not a fake training "version".
         let factCount = state.facts.count
@@ -148,7 +150,7 @@ struct TopBar: View {
                         .tracking(0.2)
                         .foregroundStyle(Color(hexv: 0xf0ddcf))
                         .lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: nameMax, alignment: .leading)   // tronque → jamais dans les côtés
+                        .fixedSize()                                     // taille du contenu (plus de cadre 240 → plus de chevauchement)
                         .shadow(color: kBarGlyphShadow, radius: 5)
                 }
                 // fact-count : texte plat « · N faits » (la pastille orange « séparait » → supprimée)
