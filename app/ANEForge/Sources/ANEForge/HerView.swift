@@ -122,8 +122,9 @@ struct HerView: View {
 
 private struct VoiceWave: View {
     var level: CGFloat
+    var paused: Bool = false        // au repos on fige l'animation (zéro CPU constant)
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: paused)) { tl in
             Canvas { ctx, size in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 let midY = size.height / 2
@@ -214,7 +215,8 @@ private struct ConversationColumn: View {
             }
             .buttonStyle(.plain)
             .help(state.isBusy || state.agentBusy || state.talking ? "Interrompre" : "Parler (mains libres)")
-            VoiceWave(level: level).frame(width: active ? 240 : 320, height: active ? 44 : 70)
+            VoiceWave(level: level, paused: level <= 0.15 && !state.isBusy && !state.agentBusy)
+                .frame(width: active ? 240 : 320, height: active ? 44 : 70)
             Text(caption)
                 .font(.emberSerif(active ? 15 : 18, weight: .regular).italic())
                 .foregroundStyle(Color(hexv: 0xd8b9a6))
@@ -301,7 +303,7 @@ private struct ConversationColumn: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 9) {
+                    LazyVStack(alignment: .leading, spacing: 9) {   // lazy → ne rend que le visible (fil long fluide)
                         ForEach(state.herConversation) { turn in
                             if turn.kind == .creation { creationRow(turn) }   // document restauré, dans le fil
                             else { bubble(turn) }
@@ -313,8 +315,10 @@ private struct ConversationColumn: View {
                     .padding(.horizontal, 2)
                 }
                 .frame(maxHeight: .infinity)
-                .onChange(of: state.herConversation) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-                .onChange(of: state.agentEvents) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                // Pendant le streaming, herConversation change à CHAQUE token : on suit le bas SANS
+                // animation (l'animation par token saccadait toute l'interface). Saut instantané = fluide.
+                .onChange(of: state.herConversation) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: state.agentEvents) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: state.generating) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: state.lastGenerated?.title) { _, _ in withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 // « Revenir à cette étape » depuis l'Historique : on défile jusqu'au tour visé.

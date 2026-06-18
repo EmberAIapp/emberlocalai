@@ -418,10 +418,12 @@ final class SpeechController: ObservableObject {
             for await u in stream {
                 if let t = u.text, Self.isWakePhrase(t) { self.fireWake(); return }
             }
-            // flux terminé (silence / timeout / erreur) → relancer si toujours armé
+            // flux terminé (silence / timeout / erreur) → relancer si toujours armé, avec un délai
+            // anti-emballement (si la reco échoue en boucle, on ne sature pas le CPU).
             if self.wakeArmed && !self.sessionActive {
                 self.teardownWakeEngine()
-                self.beginWake()
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if self.wakeArmed && !self.sessionActive { self.beginWake() }
             }
         }
     }
