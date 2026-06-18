@@ -1,100 +1,74 @@
-# ANEForge
+# Ember
 
-**Votre IA personnelle, entraînée sur votre Mac. 100% locale.**
+**Your local-first personal AI for macOS. Your AI, your memory, your conversations — on your Mac.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1--M5-black.svg)]()
-[![Rust](https://img.shields.io/badge/Rust-2024-orange.svg)](https://www.rust-lang.org/)
-[![Swift](https://img.shields.io/badge/Swift-6-orange.svg)](https://swift.org/)
+[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-M1+-black.svg)]()
+[![Download](https://img.shields.io/badge/Download-macOS-ff7a3c.svg)](https://emberlocalai.com)
 
-ANEForge crée une IA qui **apprend de vos propres données** et **s'en souvient** —
-sans jamais que rien ne quitte votre Mac. Pas de cloud, pas d'abonnement, pas de
-GPU à 10 000 $. Et l'inférence tourne sur l'**Apple Neural Engine**.
+Ember is a personal AI that learns from your data and remembers you. You talk to it
+out loud, it answers — and its model, memory and conversations run **on your Mac**.
+No account, no sign-up, no cloud by default.
 
-```bash
-aneforge create moi --base smollm2-135m   # créer
-aneforge learn  moi --data mes-notes.txt  # apprendre de vos données
-aneforge chat   moi                       # discuter
-```
+→ **Download for macOS:** **https://emberlocalai.com**
+→ DMG mirror: https://huggingface.co/EmberAIapp/ember-app
 
-## Ce qui marche aujourd'hui (vérifié)
+---
 
-| Capacité | Preuve |
-|---|---|
-| **Mémoire personnelle éditable** | Ember apprend vos faits, vous les **voyez, corrigez, supprimez** (`aneforge memory / remember / forget`) ; injectés par récupération — marche sur tout modèle |
-| Mémorisation par fine-tuning | apprend votre *style* via LoRA, restitué après fermeture/réouverture (5/5) |
-| Entraînement local | LoRA 7 modules, convergence réelle, BLAS/Accelerate (~1 s/pas sur 135M) |
-| Inférence réelle | génération greedy + contrôle de répétition |
-| CLI complète | `create / learn / ask / chat / memory` de bout en bout |
-| App macOS native | SwiftUI, glisser-déposer vos données + chat |
-| **Exécution Core ML, Neural Engine activé** | modèle complet exécuté via Core ML (`computeUnits=All`, partition auto vers l'ANE), sortie validée vs référence — voir [`crates/ane-sys/verify/`](crates/ane-sys/verify/) |
+## What it does
 
-Détails honnêtes (prouvé vs à venir) : [STATUS.md](STATUS.md).
+- **🗣️ Talk (Her Mode)** — voice or text. On-device chat (Qwen2.5 via [MLX](https://github.com/ml-explore/mlx)); Ember answers out loud.
+- **🧠 Memory you control** — Ember files what it learns about you as plain-language facts you can **read, edit, or delete**. Stored locally.
+- **📥 Learn from your data** — drop in notes, files and folders, or connect Apple Notes. Facts are extracted on-device.
+- **⚙️ Optional work agent** — hand Ember a real task. The agent can call an external cloud AI model — **only with your per-action consent**. This is the one feature that can reach the cloud.
+
+## Privacy — the honest version
+
+- Your **AI, memory and conversations run on your Mac** (MLX inference + local storage).
+- The **only** thing that can reach the cloud is the **optional work agent**, which calls an external AI model (currently DeepSeek), and **only when you approve it, action by action**.
+- No telemetry. No account. No tracking.
+
+## Install
+
+Download the DMG from **https://emberlocalai.com**, open it, drag **Ember** to Applications.
+
+**Unsigned beta** (not yet notarized — that needs an Apple Developer account). To open on macOS:
+
+- Open Ember once, then go to **System Settings → Privacy & Security → Open Anyway**, **or**
+- In Terminal: `xattr -dr com.apple.quarantine /Applications/Ember.app`
+
+Requirements: **macOS 14+, Apple Silicon (M1 or later)**. ~2.2 GB (the model ships inside, so it works fully offline).
 
 ## Architecture
 
 ```
-App SwiftUI  ─►  CLI (aneforge)  ─►  Python (orchestration, HF)  ─►  Rust (_core, moteur)
-                                                                      └─►  ANE (inférence) / CPU
+SwiftUI app  ─►  local Python daemon  ─►  MLX inference (on-device)
+(app/ANEForge)   (ember_daemon.py)        (Qwen2.5-1.5B-Instruct-4bit)
+                       │
+                       ├─►  retrieval memory (facts) + neural TTS (Kokoro)
+                       └─►  optional work agent  ─►  external cloud model (consent-gated)
 ```
 
-- **Rust** [`crates/ane-core`](crates/ane-core) — forward/backward, LoRA, AdamW, BLAS.
-- **Rust + ObjC** [`crates/ane-sys`](crates/ane-sys) — accès Neural Engine (inférence via CoreML public ; training via APIs privées).
-- **Python** [`python/aneforge`](python/aneforge) — CLI, HF, persistance, export ANE.
-- **Swift** [`app/ANEForge`](app/ANEForge) — l'app native.
+- **App** — [`app/ANEForge`](app/ANEForge) — native SwiftUI macOS app (Swift 6).
+- **Engine** — [`python/aneforge`](python/aneforge) — local daemon (`ember_daemon.py`), MLX chat (`mlx_chat.py`), editable memory (`memory.py`), voice (`tts.py`), the work agent (`agent.py`).
+- **Research (experimental)** — [`crates/`](crates) — Rust (`ane-core`, `ane-sys`): on-device training + Apple Neural Engine execution via Core ML. This is a separate research track from the shipped MLX app.
 
-## Installation (dev)
+## Build from source
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install maturin huggingface_hub tokenizers safetensors rich typer numpy ml_dtypes
-maturin develop --release -m crates/ane-python/Cargo.toml
+# dev build (binary only, uses your local engine — fast iteration)
+EMBED_ENGINE=0 ./app/ANEForge/build_app.sh
 
-PYTHONPATH=python python -m aneforge.cli info
+# self-contained "any-Mac" build (embeds a relocatable Python + the models)
+DIST=1 ./app/ANEForge/build_app.sh
 ```
 
-Prérequis : macOS 14+, Apple Silicon (M1–M5), Python 3.10+, Xcode CLT.
+Requirements: macOS 14+, Apple Silicon, Xcode Command Line Tools, Python 3.10+.
 
-## App macOS
+## License
 
-```bash
-./app/ANEForge/build_app.sh   # produit ANEForge.app
-open app/ANEForge/ANEForge.app
-```
+MIT — see [LICENSE](LICENSE).
 
-## Mémoire personnelle (ce qui rend "il me connaît" réel)
+---
 
-Les *faits* ("mon chien s'appelle Pixel") vivent dans une mémoire locale
-**inspectable, éditable, supprimable** — pas dans le réseau. Le LoRA apprend
-votre *voix* ; la mémoire retient vos *faits*, et les réinjecte par récupération
-dans le contexte. Résultat : Ember sait, et **vous gardez le contrôle**.
-
-```bash
-aneforge remember moi "Mon chien s'appelle Pixel"
-aneforge memory   moi          # voir tout ce qu'Ember sait de vous
-aneforge forget   moi 3        # oublier un fait  (ou --all)
-```
-
-## Exécution sur le Neural Engine
-
-L'export d'un modèle et son exécution sont documentés et reproductibles dans
-[`crates/ane-sys/verify/`](crates/ane-sys/verify/README.md). L'inférence utilise
-l'API **publique** Core ML (aucune API privée) avec `computeUnits = All` : Core ML
-est un *scheduler* qui partitionne le graphe sur CPU/GPU/Neural Engine. La
-formulation honnête est donc *"exécution Core ML, Neural Engine activé"* — la
-preuve de dispatch ANE op-par-op exige un Core ML Performance Report (Xcode).
-
-## Pourquoi l'ANE
-
-L'ANE est ~80× plus efficace par watt qu'un GPU : le Mac reste froid, silencieux,
-la batterie tient, et le GPU reste libre. C'est ce qui rendra possible une IA qui
-apprend de vous **en continu, en arrière-plan**, sans que vous le remarquiez.
-
-## Avertissements
-
-- Le chemin d'entraînement sur ANE utilise des **APIs privées Apple** (recherche).
-- Projet expérimental. Les performances dépendent du modèle, des données, du hardware.
-
-## Licence
-
-MIT — voir [LICENSE](LICENSE).
+Website **https://emberlocalai.com** · Hugging Face **https://huggingface.co/EmberAIapp** · made by [EmberAIapp](https://github.com/EmberAIapp)
