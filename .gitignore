@@ -62,3 +62,4 @@ app/ANEForge/*.icns
 
 # Local Claude Code working manual — never publish (keeps the public repo AI-mention-free)
 CLAUDE.md
+WORKLOG.md
