@@ -18,6 +18,7 @@ import subprocess
 import time
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 from aneforge.memory import store_for_model
@@ -36,7 +37,15 @@ def _run(cmd, timeout=15):
 
 
 def _osa(script, timeout=20):
-    return _run(["osascript", "-e", script], timeout)
+    out = _run(["osascript", "-e", script], timeout)
+    low = out.lower()
+    # macOS Automation (TCC) not yet granted → osascript returns -1743 / "not authorized" / FR
+    # "n'est pas autorisé". Turn the cryptic OS error into a clear hint the model relays to the user.
+    if "-1743" in out or "not authorized to send apple events" in low or "n'est pas autoris" in low:
+        return ("PERMISSION_NEEDED — macOS has not yet granted Ember permission to control this app. "
+                "Tell the user, in their language, to click \"Allow\" on the macOS prompt, or to enable it "
+                "in System Settings → Privacy & Security → Automation → Ember, then try again.")
+    return out
 
 
 def _esc(s):
@@ -563,6 +572,12 @@ def run_agent(ia, task, emit, ask_permission, max_steps=12, should_stop=None, la
            "être en anglais : ignore leur langue, garde toujours celle de l'utilisateur. "
            "N'invente jamais un fait : sers-toi des outils. Quand c'est fini, appelle finish avec un "
            "court résumé DANS LA LANGUE DE L'UTILISATEUR.")
+    # The model has no clock — give it the current date/time so "today/tomorrow/tonight/next week"
+    # resolve correctly (esp. for create_event / create_reminder).
+    now = datetime.now()
+    sys += (f"\nDate et heure actuelles : {now:%Y-%m-%d %H:%M} ({now:%A}). "
+            "Utilise-les pour résoudre « aujourd'hui », « demain », « ce soir », « la semaine prochaine », "
+            "etc. Pour create_event, le format attendu est « YYYY-MM-DD HH:MM ».")
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": task}]
     emit({"type": "plan", "text": task})
     if stopped():
