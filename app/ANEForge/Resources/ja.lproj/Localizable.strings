@@ -249,3 +249,24 @@
 "Voice & conversation, 100% local" = "音声と会話、100% ローカル";
 "Trust" = "信頼";
 "Trust ON" = "信頼 オン";
+
+/* badges (History kinds / Memory categories & sources / days) */
+"YOU" = "あなた";
+"WORK" = "仕事";
+"CREATION" = "作成";
+"PROJECT" = "プロジェクト";
+"TASTES" = "好み";
+"PLACE" = "場所";
+"PEOPLE" = "人";
+"PERSONAL" = "個人";
+"OTHER" = "その他";
+"All" = "すべて";
+"Conversation" = "会話";
+"Work" = "仕事";
+"Creations" = "作成物";
+"added by you" = "あなたが追加";
+"learned while chatting" = "会話中に学習";
+"noted while idle" = "待機中にメモ";
+"from a file" = "ファイルから";
+"Today" = "今日";
+"Yesterday" = "昨日";

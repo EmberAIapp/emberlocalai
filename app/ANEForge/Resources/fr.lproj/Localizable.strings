@@ -249,3 +249,24 @@
 "Voice & conversation, 100% local" = "Voix & conversation, 100% local";
 "Trust" = "Confiance";
 "Trust ON" = "Confiance ON";
+
+/* badges (History kinds / Memory categories & sources / days) */
+"YOU" = "TOI";
+"WORK" = "TRAVAIL";
+"CREATION" = "CRÉATION";
+"PROJECT" = "PROJET";
+"TASTES" = "GOÛTS";
+"PLACE" = "LIEU";
+"PEOPLE" = "GENS";
+"PERSONAL" = "PERSO";
+"OTHER" = "AUTRE";
+"All" = "Tout";
+"Conversation" = "Conversation";
+"Work" = "Travail";
+"Creations" = "Créations";
+"added by you" = "ajouté par toi";
+"learned while chatting" = "appris en discutant";
+"noted while idle" = "noté au repos";
+"from a file" = "depuis un fichier";
+"Today" = "Aujourd'hui";
+"Yesterday" = "Hier";

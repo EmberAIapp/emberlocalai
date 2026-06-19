@@ -249,3 +249,24 @@
 "Voice & conversation, 100% local" = "语音与对话，100% 本地";
 "Trust" = "信任";
 "Trust ON" = "信任 开";
+
+/* badges (History kinds / Memory categories & sources / days) */
+"YOU" = "你";
+"WORK" = "工作";
+"CREATION" = "创作";
+"PROJECT" = "项目";
+"TASTES" = "喜好";
+"PLACE" = "地点";
+"PEOPLE" = "人物";
+"PERSONAL" = "个人";
+"OTHER" = "其他";
+"All" = "全部";
+"Conversation" = "对话";
+"Work" = "工作";
+"Creations" = "创作";
+"added by you" = "由你添加";
+"learned while chatting" = "聊天时学到";
+"noted while idle" = "空闲时记录";
+"from a file" = "来自文件";
+"Today" = "今天";
+"Yesterday" = "昨天";

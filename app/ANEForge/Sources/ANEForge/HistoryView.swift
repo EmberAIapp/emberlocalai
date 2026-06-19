@@ -141,7 +141,7 @@ struct HistoryView: View {
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
-                    Text(label(item.kind)).font(.system(size: 10.5, weight: .medium)).tracking(0.6)
+                    Text(LocalizedStringKey(label(item.kind))).font(.system(size: 10.5, weight: .medium)).tracking(0.6)
                         .foregroundStyle(tint(item.kind))
                     Text(item.date.formatted(date: .abbreviated, time: .shortened))
                         .font(.system(size: 10.5)).foregroundStyle(Color(hexv: 0x7c6f67))

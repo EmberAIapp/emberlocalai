@@ -261,7 +261,7 @@ private struct MemoryFactRow: View {
             HStack(spacing: 5) {
                 if let src {
                     Image(systemName: src.icon).font(.system(size: 9))
-                    Text(src.text)
+                    Text(LocalizedStringKey(src.text))
                 }
                 if src != nil && !when.isEmpty {
                     Text("·")
