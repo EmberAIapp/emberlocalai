@@ -50,20 +50,41 @@ _CREATE_RE = re.compile(
     re.IGNORECASE)
 
 # Clear computer/file/app actions → also the agent (the local model can't touch files). An action
-# verb near a computer object (EN/FR). Precise enough to avoid gating normal chat.
+# verb near a computer/media object (EN/FR), incl. music, reminders, calendar, clipboard.
 _ACTION_RE = re.compile(
-    r"\b(open|launch|run|list|show|display|find|search|locate|read|summari[sz]e|save|send|move|"
-    r"copy|rename|organi[sz]e|delete|download|"
-    r"ouvre|ouvrir|lance|lancer|d[ée]marre|ex[ée]cute|liste[rz]?|affiche[rz]?|montre[rz]?|"
-    r"cherche[rz]?|trouve[rz]?|recherche[rz]?|r[ée]sume[rz]?|enregistre|sauvegarde|envoie[rz]?|"
-    r"d[ée]place|copie|renomme|organise|range|supprime|t[ée]l[ée]charge)\b"
+    r"\b(open|launch|run|play|pause|list|show|display|find|search|locate|read|summari[sz]e|save|"
+    r"send|move|copy|rename|organi[sz]e|delete|download|remind|schedule|add|create|set|"
+    r"ouvre|ouvrir|lance|lancer|d[ée]marre|ex[ée]cute|joue[rz]?|mets|coupe|liste[rz]?|affiche[rz]?|"
+    r"montre[rz]?|cherche[rz]?|trouve[rz]?|recherche[rz]?|r[ée]sume[rz]?|enregistre|sauvegarde|"
+    r"envoie[rz]?|d[ée]place|copie|renomme|organise|range|supprime|t[ée]l[ée]charge|rappelle|"
+    r"planifie|ajoute|cr[ée]e)\b"
     r".{0,40}?\b(files?|folders?|documents?|desktop|apps?|application|notes?|e-?mails?|messages?|"
-    r"finder|downloads?|screen|window|calendar|reminders?|"
+    r"finder|downloads?|screen|window|calendar|reminders?|music|songs?|tracks?|playlists?|"
+    r"events?|meetings?|appointments?|clipboard|"
     r"fichiers?|dossiers?|bureau|t[ée]l[ée]chargements?|courriels?|messagerie|[ée]cran|fen[êe]tre|"
-    r"calendrier|rappels?)\b",
+    r"calendrier|rappels?|musique|chansons?|morceaux?|[ée]v[ée]nements?|rendez-vous|r[ée]unions?|"
+    r"presse-papiers)\b",
     re.IGNORECASE)
 # "open/launch X" (an app) is always a task, whatever X is.
 _LAUNCH_RE = re.compile(r"\b(open|launch|ouvre|ouvrir|lance|lancer|d[ée]marre)\b\s+\S", re.IGNORECASE)
+# A message that STARTS with an action/imperative verb is a task ("ouvre…", "mets de la musique",
+# "crée un rappel", "rappelle-moi…", "joue…", "envoie…"). Missing a task is SILENT and worse than an
+# extra consent gate, so we lean toward TASK for imperatives; greetings/questions don't start with
+# these verbs → they still go to chat.
+_IMPERATIVE_RE = re.compile(
+    r"^\s*(?:s'?il te pla[iî]t,?\s+|stp,?\s+|please,?\s+|peux[- ]?tu\s+|pourrais[- ]?tu\s+|"
+    r"tu peux\s+|tu pourrais\s+|vas[- ]?y,?\s+|can you\s+|could you\s+|would you\s+|"
+    r"je\s+(?:veux|voudrais|aimerais|ai\s+besoin)(?:\s+que\s+tu)?\s+|i (?:want|need|'?d like)(?: you)? to\s+)?"
+    r"(?:m['’]|me\s+|moi\s+|nous\s+|le\s+|la\s+|les\s+|lui\s+)?\s*"
+    r"(open|launch|run|play|pause|stop|skip|next|previous|resume|list|show|display|find|search|"
+    r"read|summari[sz]e|save|send|move|copy|paste|rename|organi[sz]e|delete|download|remind|"
+    r"schedule|add|create|make|set|put|write|compose|draft|translate|calculate|"
+    r"ouvr\w*|lanc\w*|d[ée]marr\w*|ex[ée]cut\w*|jou\w*|mets|mettre|coup\w*|arr[êe]t\w*|repren\w*|"
+    r"pass\w*|list\w*|affich\w*|montr\w*|cherch\w*|trouv\w*|recherch\w*|lis|lire|r[ée]sum\w*|"
+    r"enregistr\w*|sauvegard\w*|envoi\w*|d[ée]plac\w*|copi\w*|coll\w*|renomm\w*|organis\w*|rang\w*|"
+    r"supprim\w*|t[ée]l[ée]charg\w*|rappell\w*|planifi\w*|ajout\w*|cr[ée]\w*|fai(?:s|t|re|tes)|"
+    r"[ée]cri\w*|r[ée]dig\w*|compos\w*|traduis\w*|calcul\w*|programm\w*)\b",
+    re.IGNORECASE)
 
 
 def _settings_path(name: str):
@@ -592,8 +613,10 @@ class Engine:
         if not m:
             return "chat"
         # Deterministic high-precision shortcuts (reliable across EN/FR — the 1.5B classifier is not):
-        #   compose original text, a clear file/app action, or "open <app>" → the agent.
-        if _CREATE_RE.search(m) or _ACTION_RE.search(m) or _LAUNCH_RE.search(m):
+        #   compose original text, a clear file/app/media action, "open <app>", or a leading
+        #   imperative verb → the agent. (Conversation-first only for greetings/questions/feelings.)
+        if (_CREATE_RE.search(m) or _ACTION_RE.search(m) or _LAUNCH_RE.search(m)
+                or _IMPERATIVE_RE.search(m)):
             return "task"
         sys = ("Classify the user's message to a personal on-device AI as TASK or CHAT.\n"
                "TASK = the user wants Ember to DO, MAKE or WRITE something: handle files or apps, "

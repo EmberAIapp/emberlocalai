@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.parse
@@ -43,17 +44,78 @@ def _esc(s):
     return (s or "").replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
 
 
-def _launch(app, settle=1.4):
-    """Launch/focus an app and wait briefly. osascript→app fails with -600 if the app isn't
-    running, so read/control tools call this first. Returns (ok, message)."""
+# macOS apps carry ENGLISH bundle names; `open -a` matches the bundle/file name, NOT the user's
+# localized display name — so FR "Calculatrice" fails because the bundle is "Calculator". We map the
+# common localized names (FR first — the launch market) and fall back to Spotlight for anything else.
+_APP_ALIASES = {
+    "calculatrice": "Calculator", "calendrier": "Calendar", "rappels": "Reminders",
+    "réglages": "System Settings", "reglages": "System Settings",
+    "réglages système": "System Settings", "reglages systeme": "System Settings",
+    "préférences système": "System Settings", "preferences systeme": "System Settings",
+    "courrier": "Mail", "plans": "Maps", "cartes": "Maps", "musique": "Music",
+    "livres": "Books", "bourse": "Stocks", "maison": "Home", "aperçu": "Preview", "apercu": "Preview",
+    "dictaphone": "Voice Memos", "notes vocales": "Voice Memos", "horloge": "Clock",
+    "raccourcis": "Shortcuts", "météo": "Weather", "meteo": "Weather",
+    "trousseau d'accès": "Keychain Access", "moniteur d'activité": "Activity Monitor",
+    "utilitaire de disque": "Disk Utility", "navigateur": "Safari",
+}
+
+
+def _resolve_app(name: str) -> str:
+    """Canonicalise an app name: strip leading articles, map a localized name → its bundle name."""
+    n = (name or "").strip().strip('"“”\'').strip()
+    n = re.sub(r"^(?:l['’]\s*application|l['’]\s*app|the\s+app|application|app|l['’])\s+",
+               "", n, flags=re.I).strip()
+    return _APP_ALIASES.get(n.lower(), n)
+
+
+def _spotlight_app(name: str):
+    """Resolve a (possibly localized) display name → an .app path via Spotlight — works for ANY app
+    in ANY language (the OS indexes the localized display name)."""
+    n = (name or "").strip().strip('"“”\'').replace("'", "")
+    if not n:
+        return None
+    q = f"kMDItemContentTypeTree == 'com.apple.application-bundle' && kMDItemDisplayName == '{n}'cd"
     try:
-        r = subprocess.run(["open", "-a", app], capture_output=True, text=True, timeout=12)
-    except Exception as e:
-        return False, f"Erreur : {e}"
-    if r.returncode != 0:
-        return False, f"Impossible d'ouvrir « {app} » : {(r.stderr or '').strip()[:140] or 'app introuvable'}"
-    time.sleep(settle)
-    return True, f"App ouverte : {app}"
+        r = subprocess.run(["mdfind", q], capture_output=True, text=True, timeout=8)
+        for line in (r.stdout or "").splitlines():
+            line = line.strip()
+            if line.endswith(".app"):
+                return line
+    except Exception:
+        pass
+    return None
+
+
+def _launch(app, settle=1.4):
+    """Launch/focus an app and wait briefly. macOS apps have ENGLISH bundle names, so we resolve
+    common localized names (e.g. FR « Calculatrice » → "Calculator") and add a Spotlight fallback,
+    then `open -a`. osascript→app fails -600 if not running, so read/control tools call this first."""
+    resolved = _resolve_app(app)
+    tried = []
+    for cand in (resolved, app):
+        cand = (cand or "").strip()
+        if not cand or cand in tried:
+            continue
+        tried.append(cand)
+        try:
+            r = subprocess.run(["open", "-a", cand], capture_output=True, text=True, timeout=12)
+        except Exception as e:
+            return False, f"Erreur : {e}"
+        if r.returncode == 0:
+            time.sleep(settle)
+            return True, f"App ouverte : {cand}"
+    # Last resort: Spotlight by localized display name → open the resolved bundle path directly.
+    path = _spotlight_app(app) or _spotlight_app(resolved)
+    if path:
+        try:
+            r = subprocess.run(["open", path], capture_output=True, text=True, timeout=12)
+            if r.returncode == 0:
+                time.sleep(settle)
+                return True, f"App ouverte : {Path(path).stem}"
+        except Exception:
+            pass
+    return False, f"Impossible d'ouvrir « {app} » : application introuvable"
 
 
 def _read(p: Path):
@@ -155,7 +217,9 @@ TOOLS = [
                     "content": {"type": "string"}}, "required": ["filename", "content"]}}},
     # --- P1 ecosystem (apps + computer): safe reads & launch, all LOCAL execution, gated ---
     {"type": "function", "function": {"name": "open_app",
-     "description": "Open / focus a macOS app by name (e.g. Safari, Mail, Notes, Music).",
+     "description": "Open / focus ANY installed macOS app by its name (first-party OR third-party — "
+                    "Safari, Mail, Notes, Music, Calculator, Spotify, WhatsApp, VS Code, etc.). Use "
+                    "the name the user gave; localized names are resolved automatically.",
      "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
     {"type": "function", "function": {"name": "open_url",
      "description": "Open a web/mail link (http, https or mailto only).",
@@ -444,42 +508,82 @@ def _exec(name, args, ia):
     return "Unknown tool."
 
 
-def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
+# Short status strings the Python loop emits directly (the model never writes these), localized so a
+# FR user doesn't suddenly get English. The model's own finish summary already follows the user's
+# language thanks to the system prompt below.
+_LANG_STR = {
+    "stopped":        {"fr": "Arrêté.", "en": "Stopped."},
+    "cloud_refused":  {"fr": "Tâche annulée — envoi au cloud refusé. Rien n'a quitté ton Mac.",
+                       "en": "Task canceled — cloud upload refused. Nothing left your Mac."},
+    "no_action":      {"fr": "Arrêté — aucune action.", "en": "Stopped — no further action."},
+    "done":           {"fr": "Terminé.", "en": "Done."},
+    "action_not_run": {"fr": "Arrêté — action non exécutée.", "en": "Stopped — action not run."},
+    "refused":        {"fr": "Action refusée.", "en": "Action refused by the user."},
+    "step_limit":     {"fr": "Limite d'étapes atteinte.", "en": "Step limit reached."},
+    "unavailable":    {"fr": "Agent indisponible : {e}", "en": "Agent unavailable: {e}"},
+}
+_FR_HINT = re.compile(
+    r"[àâçéèêëîïôûùœ]|\b(le|la|les|un|une|des|du|je|tu|il|elle|nous|vous|mon|ma|mes|ton|ta|tes|"
+    r"et|ou|pour|avec|dans|sur|ouvre|ouvrir|écris|crée|créer|rappelle|mets|fais|montre|cherche|"
+    r"trouve|peux|pourrais|stp|merci|bonjour|salut|quoi|pourquoi|comment)\b", re.I)
+
+
+def _detect_lang(text: str) -> str:
+    """Tiny FR/EN detector for the Python-emitted status strings (the model handles every language
+    itself for its own output)."""
+    return "fr" if _FR_HINT.search(text or "") else "en"
+
+
+def _say(key: str, lang: str) -> str:
+    d = _LANG_STR.get(key, {})
+    return d.get(lang) or d.get("en") or key
+
+
+def run_agent(ia, task, emit, ask_permission, max_steps=12, should_stop=None, lang=None):
     """Drive the DeepSeek tool-use loop.
     emit(event: dict)                  -> stream a UI event.
     ask_permission(tool, args, scope)  -> bool, blocks until the user decides (sensitive tools).
     should_stop()                      -> bool ; checked before every cloud call AND every tool
                                           execution so « Stop » halts the worker server-side
                                           (no tool runs after the user cancels). §3.
+    lang                               -> optional 'fr'/'en'… hint for status strings; auto-detected
+                                          from the task when not given.
     """
     def stopped():
         return bool(should_stop and should_stop())
+    lang = lang or _detect_lang(task)
 
-    sys = ("Tu es l'agent d'Ember, l'IA personnelle locale de l'utilisateur. Accomplis la tâche "
-           "en utilisant les outils, étape par étape, de façon concrète et brève. Réponds dans la "
-           "langue de l'utilisateur. N'invente jamais un fait : sers-toi des outils. Quand c'est fini, "
-           "appelle finish avec un court résumé.")
+    sys = ("Tu es l'agent d'Ember, l'IA personnelle locale de l'utilisateur. Accomplis la tâche en "
+           "utilisant les outils, étape par étape, de façon concrète. AGIS vraiment : pour toute "
+           "demande d'action (ouvrir une app, créer une note / un rappel / un événement, jouer de la "
+           "musique, gérer des fichiers, chercher…), APPELLE l'outil correspondant — ne te contente "
+           "jamais d'en parler ou de promettre de le faire. "
+           "LANGUE : détecte la langue du message de l'utilisateur ci-dessous et réponds EXCLUSIVEMENT "
+           "dans cette même langue — tes étapes ET le résumé final. Les résultats d'outils peuvent "
+           "être en anglais : ignore leur langue, garde toujours celle de l'utilisateur. "
+           "N'invente jamais un fait : sers-toi des outils. Quand c'est fini, appelle finish avec un "
+           "court résumé DANS LA LANGUE DE L'UTILISATEUR.")
     messages = [{"role": "system", "content": sys}, {"role": "user", "content": task}]
     emit({"type": "plan", "text": task})
     if stopped():
-        emit({"type": "done", "summary": "Stopped."}); return
+        emit({"type": "done", "summary": _say("stopped", lang)}); return
     # CONSENTEMENT CLOUD explicite (§7) — rien ne part avant un OUI clair. Le cerveau est DeepSeek :
     # la tâche + les résultats d'outils (fichiers, notes, mémoire lus) y seront envoyés.
     if not ask_permission("__cloud__", {"task": task}, CLOUD_SCOPE):
-        emit({"type": "done", "summary": "Task canceled — cloud upload refused. Nothing left your Mac."})
+        emit({"type": "done", "summary": _say("cloud_refused", lang)})
         return
     for _ in range(max_steps):
         if stopped():
-            emit({"type": "done", "summary": "Stopped — no further action."}); return
+            emit({"type": "done", "summary": _say("no_action", lang)}); return
         try:
             msg = _deepseek(messages, TOOLS)
         except Exception as e:
-            emit({"type": "error", "text": f"Agent unavailable: {e}"})
+            emit({"type": "error", "text": _say("unavailable", lang).format(e=e)})
             return
         calls = msg.get("tool_calls") or []
         if not calls:
             text = (msg.get("content") or "").strip()
-            emit({"type": "done", "summary": text or "Done."})
+            emit({"type": "done", "summary": text or _say("done", lang)})
             return
         messages.append(msg)
         for c in calls:
@@ -489,19 +593,19 @@ def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
             except Exception:
                 args = {}
             if name == "finish":
-                emit({"type": "done", "summary": args.get("summary", "Done.")})
+                emit({"type": "done", "summary": args.get("summary") or _say("done", lang)})
                 return
             # Vérifie l'arrêt AVANT d'exécuter l'outil → aucune mutation (déplacement, brouillon mail,
             # événement…) ne se produit après « Stop ».
             if stopped():
-                emit({"type": "done", "summary": "Stopped — action not run."}); return
+                emit({"type": "done", "summary": _say("action_not_run", lang)}); return
             emit({"type": "tool", "name": name, "args": args})
             scope = SENSITIVE.get(name)
             if scope and not ask_permission(name, args, scope):
-                result = "Action refused by the user."
+                result = _say("refused", lang)
                 emit({"type": "observation", "name": name, "text": result, "denied": True})
             elif stopped():
-                emit({"type": "done", "summary": "Stopped — action not run."}); return
+                emit({"type": "done", "summary": _say("action_not_run", lang)}); return
             else:
                 try:
                     result = _exec(name, args, ia)
@@ -509,4 +613,4 @@ def run_agent(ia, task, emit, ask_permission, max_steps=8, should_stop=None):
                     result = f"Erreur : {e}"
                 emit({"type": "observation", "name": name, "text": str(result)[:600]})
             messages.append({"role": "tool", "tool_call_id": c["id"], "content": str(result)[:4000]})
-    emit({"type": "done", "summary": "Step limit reached."})
+    emit({"type": "done", "summary": _say("step_limit", lang)})

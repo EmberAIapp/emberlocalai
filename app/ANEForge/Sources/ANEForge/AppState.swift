@@ -388,7 +388,7 @@ final class AppState: ObservableObject {
             let mode = await engine.route(name: name, message: text)
             herMode = mode
             if mode == "task" {
-                let ack = "Got it, I'm on it."
+                let ack = NSLocalizedString("Got it, I'm on it.", comment: "spoken + shown when a task starts")
                 herConversation.append(HerTurn(role: .ember, text: ack, working: true))
                 herSpeak = SpeakRequest(text: ack, lang: herLang)
                 runAgentTask(text)                       // fills agentEvents; speaks summary on done (persiste la tâche)

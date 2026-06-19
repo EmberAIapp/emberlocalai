@@ -481,7 +481,7 @@ private struct WorkInline: View {
                         HStack(spacing: 7) {
                             Image(systemName: state.agentBusy ? "gearshape.2" : "checkmark.seal").font(.system(size: 12))
                                 .foregroundStyle(Color(hexv: 0xffa050))
-                            Text("Work · \(steps) step\(steps > 1 ? "s" : "")")
+                            Text(verbatim: String(format: NSLocalizedString(steps <= 1 ? "Work · %lld step" : "Work · %lld steps", comment: "agent step counter"), steps))
                                 .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Color(hexv: 0xffa050))
                             Spacer()
                             Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 11))
@@ -532,7 +532,7 @@ private struct HerEventRow: View {
         case "gate":               gateRow
         case "done", "message":    EmptyView()
         case "error":              stepRow(icon: "exclamationmark.triangle.fill", tint: Color(hexv: 0xff6b5a), title: "Error", detail: event.text)
-        case "tool":               stepRow(icon: toolIcon, tint: Color(hexv: 0xffa050), title: toolTitle, detail: event.detail)
+        case "tool":               stepRow(icon: toolIcon, tint: Color(hexv: 0xffa050), title: LocalizedStringKey(toolTitle), detail: event.detail)
         case "observation":        stepRow(icon: event.denied ? "xmark.circle.fill" : "checkmark.circle.fill",
                                             tint: event.denied ? Color(hexv: 0xff6b5a) : Color(hexv: 0x7fd095),
                                             title: nil, detail: event.text)
@@ -595,7 +595,7 @@ private struct HerEventRow: View {
         }
     }
 
-    private func stepRow(icon: String, tint: Color, title: String?, detail: String) -> some View {
+    private func stepRow(icon: String, tint: Color, title: LocalizedStringKey?, detail: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon).font(.system(size: 12.5)).foregroundStyle(tint).frame(width: 17)
             VStack(alignment: .leading, spacing: 1) {
@@ -610,7 +610,7 @@ private struct HerEventRow: View {
         .padding(.vertical, 5).padding(.horizontal, 4).frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var gateDesc: String {
+    private var gateDesc: LocalizedStringKey {
         switch event.tool {
         case "__cloud__":        return "Send your request — and the tool results (files, notes, memory read) — to DeepSeek (cloud) for this task. Nothing has left yet."
         case "list_facts":       return "Read your personal memory facts"
@@ -636,7 +636,7 @@ private struct HerEventRow: View {
         case "music_control":    return "Control music (\(event.detail))"
         case "draft_mail":       return "Prepare a mail draft “\(event.detail)” (not sent)"
         case "run_shortcut":     return "Run the shortcut “\(event.detail)”"
-        default:                 return event.tool
+        default:                 return LocalizedStringKey(event.tool)
         }
     }
 
@@ -664,7 +664,7 @@ private struct HerEventRow: View {
                     if let warn = cloudWarn {
                         HStack(spacing: 5) {
                             Image(systemName: "cloud.fill").font(.system(size: 9))
-                            Text(warn).fixedSize(horizontal: false, vertical: true)
+                            Text(LocalizedStringKey(warn)).fixedSize(horizontal: false, vertical: true)
                         }
                         .font(.system(size: 10)).foregroundStyle(Color(hexv: 0xff9a5a)).padding(.top, 2)
                     }
@@ -689,7 +689,7 @@ private struct HerEventRow: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(hexv: 0xffc850).opacity(0.08)))
     }
 
-    private func gateLabel(_ t: String, fill: Bool) -> some View {
+    private func gateLabel(_ t: LocalizedStringKey, fill: Bool) -> some View {
         Text(t).font(.system(size: 11.5, weight: fill ? .semibold : .medium))
             .foregroundStyle(fill ? Color(hexv: 0x1a0f0a) : Color(hexv: 0xb09a8c))
             .padding(.vertical, 5).padding(.horizontal, 12)
