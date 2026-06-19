@@ -90,7 +90,8 @@ struct SettingsScreen: View {
             personaText = s.persona
             maxTokens = Double(max(16, s.maxTokens))
             temperature = s.temperature
-            if !s.tone.isEmpty { state.personaSel = s.tone }
+            // Only adopt a recognized chip label, so a stale/legacy tone never leaves all chips unselected.
+            if DesignData.personaOptions.contains(s.tone) { state.personaSel = s.tone }
         }
     }
 
@@ -149,9 +150,8 @@ struct SettingsScreen: View {
 
     private var modelGrid: some View {
         VStack(alignment: .leading, spacing: 12) {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14),
-                                GridItem(.flexible(), spacing: 14),
-                                GridItem(.flexible(), spacing: 14)],
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14),
+                                     count: min(3, max(1, DesignData.modelCatalog.count))),
                       spacing: 14) {
                 ForEach(DesignData.modelCatalog) { md in
                     SettingsModelCard(md: md,
@@ -164,11 +164,11 @@ struct SettingsScreen: View {
             if let loading = state.modelLoading {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Loading model… (downloads on first use) — \(loading.components(separatedBy: "/").last ?? loading)")
+                    Text("Loading model… — \(loading.components(separatedBy: "/").last ?? loading)")
                         .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9a8d84))
                 }
             } else {
-                Text("Active model: \(state.currentModelId.components(separatedBy: "/").last ?? "—") · 100% local · switch whenever you like")
+                Text("Active model: \(state.currentModelId.components(separatedBy: "/").last ?? "—") · runs 100% on your Mac")
                     .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x7fa98a))
             }
         }

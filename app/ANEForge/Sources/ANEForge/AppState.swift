@@ -133,7 +133,12 @@ final class AppState: ObservableObject {
     @Published var voiceSession = false                // continuous "voice mode" (mains-libres en boucle)
     @Published var wakeWanted = false                  // « Ok Ember » : écoute permanente du mot-clé armée
     @Published var lastSpoken = ""                      // Ember's last spoken line (for echo rejection)
-    @Published var trustMode = false                   // "mode confiance": auto-allow non-Tier-3 actions
+    @Published var trustMode = false {                 // "mode confiance": auto-allow non-Tier-3 actions
+        didSet { if !trustMode { cloudConsentForSession = false } }   // turning trust OFF re-locks the cloud
+    }
+    // Mode autorisation automatique: in trust mode, once the user approves the cloud gate ONCE this
+    // session, subsequent tasks flow without re-asking it (other Tier-3 actions still always confirm).
+    @Published var cloudConsentForSession = false
     @Published var fullDuplexWanted = false            // opt-in to talk-over (AEC) vs reliable turn-based
 
     /// True if a transcript is most likely Ember's OWN voice picked up by the mic (no AEC) —
@@ -211,6 +216,7 @@ final class AppState: ObservableObject {
         history = []
         facts = []
         switcherOpen = false
+        cloudConsentForSession = false   // changing IA re-asks the cloud handshake (fresh context)
         if let m = model { Task { await loadFacts(m.name); await loadHistory(m.name) } }
     }
 
@@ -434,7 +440,7 @@ final class AppState: ObservableObject {
         agentTask = Task { [weak self] in
             guard let self else { return }
             do {
-                for try await e in engine.agentStream(name: name, task: t, trust: trustMode, blocked: blockedScopes) {
+                for try await e in engine.agentStream(name: name, task: t, trust: trustMode, blocked: blockedScopes, cloudOK: trustMode && cloudConsentForSession) {
                     if e.type == "session" { self.agentSession = e.detail; continue }
                     if e.type == "gate" { self.agentPendingGate = e }
                     self.agentEvents.append(e)
@@ -458,6 +464,10 @@ final class AppState: ObservableObject {
 
     func resolveAgentGate(_ allow: Bool, remember: Bool = false) {
         guard let s = agentSession else { return }
+        // In trust mode, approving the cloud gate ONCE grants it for the whole session (the agent
+        // then flows without re-asking the cloud handshake on every task). Other Tier-3 actions
+        // (shortcuts, sends, clipboard-read…) still confirm every time.
+        if allow, trustMode, agentPendingGate?.scope == "Cloud (DeepSeek)" { cloudConsentForSession = true }
         agentPendingGate = nil
         Task { await engine.agentResume(session: s, allow: allow, remember: remember) }
     }

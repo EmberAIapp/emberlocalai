@@ -32,7 +32,7 @@ struct AISettings: Codable {
     var temperature: Double = 0.7
     var persona: String = ""
     var maxTokens: Int = 220
-    var tone: String = "Calme"
+    var tone: String = "Calm"   // matches DesignData.personaOptions + the daemon's canonical label
     enum CodingKeys: String, CodingKey { case persona; case maxTokens = "max_tokens"; case temperature; case tone }
 }
 
@@ -168,7 +168,7 @@ actor Engine {
     }
 
     /// Mode Her — stream the agent's events (plan, tool, observation, gate, done) as NDJSON.
-    nonisolated func agentStream(name: String, task: String, trust: Bool = false, blocked: [String] = []) -> AsyncThrowingStream<AgentEvent, Error> {
+    nonisolated func agentStream(name: String, task: String, trust: Bool = false, blocked: [String] = [], cloudOK: Bool = false) -> AsyncThrowingStream<AgentEvent, Error> {
         let url = URL(string: "http://127.0.0.1:\(port)/agent_stream")!
         return AsyncThrowingStream { continuation in
             let job = Task {
@@ -179,7 +179,7 @@ actor Engine {
                     // → « La requête a expiré ». On laisse largement le temps d'approuver + d'exécuter.
                     req.timeoutInterval = 3600
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "task": task, "trust": trust, "blocked": blocked])
+                    req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "task": task, "trust": trust, "blocked": blocked, "cloud_ok": cloudOK])
                     let (bytes, _) = try await URLSession.shared.bytes(for: req)
                     for try await line in bytes.lines {
                         guard let d = line.data(using: .utf8),

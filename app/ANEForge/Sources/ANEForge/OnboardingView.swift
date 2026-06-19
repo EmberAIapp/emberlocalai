@@ -137,7 +137,14 @@ struct OnboardingView: View {
         if state.onboardStep == 1 {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             if state.models.isEmpty && !trimmed.isEmpty {
-                Task { await state.create(name: trimmed, base: "qwen2.5-1.5b-instruct") }
+                let tone = personaSel
+                Task { @MainActor in
+                    await state.create(name: trimmed, base: "qwen2.5-1.5b-instruct")
+                    // Persist the chosen temperament so a freshly onboarded AI actually carries it
+                    // (otherwise the onboarding chip is purely cosmetic).
+                    state.personaSel = tone
+                    await state.saveSettings(trimmed, persona: "", maxTokens: 220, temperature: 0.7)
+                }
             }
         }
         state.onboardNext()

@@ -92,7 +92,7 @@ def _settings_path(name: str):
 
 
 def _load_settings(name: str) -> dict:
-    base = {"persona": "", "max_tokens": 220, "temperature": 0.7, "tone": "Calme"}
+    base = {"persona": "", "max_tokens": 220, "temperature": 0.7, "tone": "Calm"}
     p = _settings_path(name)
     if p.exists():
         try:
@@ -102,18 +102,33 @@ def _load_settings(name: str) -> dict:
     return base
 
 
-def _save_settings(name: str, persona: str, max_tokens: int, temperature: float = 0.7, tone: str = "Calme"):
+def _save_settings(name: str, persona: str, max_tokens: int, temperature: float = 0.7, tone: str = "Calm"):
     _settings_path(name).write_text(json.dumps(
-        {"persona": persona, "max_tokens": max_tokens, "temperature": temperature, "tone": tone}))
+        {"persona": persona, "max_tokens": max_tokens, "temperature": temperature,
+         "tone": _canon_tone(tone)}))   # store a canonical label → the UI chip always matches back
 
 
-# Tone chip (Réglages) → a real instruction the model follows.
+# Tone chip (Réglages / Onboarding) → a REAL instruction injected into the system prompt.
+# The SwiftUI app sends English labels (DesignData.personaOptions); older settings.json files may
+# still hold the legacy French labels. Both resolve via _canon_tone → the chip is never inert.
 _TONE_INSTR = {
-    "Vif": "Adopte un ton vif, direct et énergique.",
-    "Professionnel": "Adopte un ton professionnel, précis et structuré.",
-    "Chaleureux": "Adopte un ton chaleureux, bienveillant et proche.",
-    "Calme": "Adopte un ton calme, posé et rassurant.",
+    "Lively":       "Adopt a lively, direct and energetic tone.",
+    "Professional": "Adopt a professional, precise and structured tone.",
+    "Warm":         "Adopt a warm, caring and close tone.",
+    "Calm":         "Adopt a calm, composed and reassuring tone.",
 }
+# Any label the UI or a legacy file might carry → its canonical key above (case-insensitive).
+_TONE_ALIASES = {
+    "lively": "Lively", "vif": "Lively",
+    "professional": "Professional", "professionnel": "Professional",
+    "warm": "Warm", "chaleureux": "Warm",
+    "calm": "Calm", "calme": "Calm",
+}
+
+
+def _canon_tone(tone: str) -> str:
+    """Map any tone label (English UI, legacy French, any case) to a canonical key; default Calm."""
+    return _TONE_ALIASES.get((tone or "").strip().lower(), "Calm")
 
 
 def _parse_fact_array(raw: str) -> list:
@@ -266,6 +281,7 @@ class _AgentSession:
         self._stop = threading.Event()  # « Stop » côté serveur → plus aucun outil n'est exécuté
         self.allowed: set = set()      # remembered "toujours" keys for THIS session (scope OR scope+path)
         self.auto_allow = False        # "mode confiance": auto-allow every non-Tier-3 scope
+        self.cloud_consented = False   # cloud handshake granted for THIS session (trust mode) → no re-ask
         self.blocked: set = set()      # scopes the user turned OFF in Réglages → HARD-denied
         self._pending_key = None
 
@@ -285,7 +301,7 @@ class _AgentSession:
         Allow silently if THIS scope+path was remembered ("toujours") OR if "mode confiance" is on —
         EXCEPT Tier-3 scopes (cloud egress, send/delete/screen…), which ALWAYS confirm explicitly.
         Remembering is keyed by scope+PATH so authorising one file never opens every file."""
-        from aneforge.agent import TIER3_SCOPES
+        from aneforge.agent import TIER3_SCOPES, CLOUD_SCOPE
         if self._stop.is_set():
             return False                # arrêté → on ne demande même pas, on refuse
         # Réglages : un périmètre désactivé est REFUSÉ d'office (révocable, granulaire).
@@ -293,6 +309,12 @@ class _AgentSession:
             self.emit({"type": "observation", "name": tool,
                        "text": f"Refusé : « {scope} » est désactivé dans tes Réglages.", "denied": True})
             return False
+        # Mode autorisation automatique : en mode confiance, l'utilisateur accorde la poignée de main
+        # cloud UNE fois par session → ensuite l'agent enchaîne sans la redemander. Toutes les AUTRES
+        # actions Tier-3 (raccourcis, envoi, suppression, lecture presse-papiers, écran) reconfirment
+        # toujours, et un périmètre bloqué dans Réglages reste refusé (vérifié juste au-dessus).
+        if scope == CLOUD_SCOPE and (self.cloud_consented or CLOUD_SCOPE in self.allowed):
+            return True
         arg = _primary_arg(args)
         path_key = f"{scope}\x1f{arg}" if arg else scope
         if scope and scope not in TIER3_SCOPES:
@@ -438,7 +460,7 @@ class Engine:
             "Your name is Ember. You are NOT Claude, GPT, Qwen, Llama, Gemini, or any other model or "
             "company's assistant — never say or imply otherwise. If asked who or what you are, you are "
             "simply Ember, the user's local AI. ALWAYS reply in the same language as the user's message.")
-        tone = _TONE_INSTR.get(s.get("tone") or "Calme", "")
+        tone = _TONE_INSTR.get(_canon_tone(s.get("tone")), "")
         base_persona = s.get("persona") or "You are warm, concise and genuinely helpful."
         # The small local model otherwise sometimes REFUSES harmless creative asks ("I'm just an
         # AI, I can't write a poem…"). Make explicit that Ember writes/creates on request.
@@ -817,6 +839,7 @@ def make_handler(engine: Engine):
                     sid = b.get("session") or uuid.uuid4().hex
                     sess = _AgentSession()
                     sess.auto_allow = bool(b.get("trust"))   # "mode confiance" → no prompt (non-Tier-3)
+                    sess.cloud_consented = bool(b.get("cloud_ok"))   # cloud déjà accordé cette session
                     sess.blocked = set(b.get("blocked") or [])   # périmètres OFF dans Réglages → refusés
                     _AGENT_SESSIONS[sid] = sess
                     self.send_response(200)
@@ -884,7 +907,7 @@ def make_handler(engine: Engine):
                     engine.reset(b["name"]); return self._send(200, {"ok": True})
                 if u.path == "/settings":
                     _save_settings(b["name"], b.get("persona", ""), int(b.get("max_tokens", 220)),
-                                   float(b.get("temperature", 0.7)), b.get("tone", "Calme"))
+                                   float(b.get("temperature", 0.7)), b.get("tone", "Calm"))
                     return self._send(200, {"ok": True})
                 if u.path == "/set_model":
                     # change the LOCAL model directly (Réglages) — reloads it (downloads if needed)

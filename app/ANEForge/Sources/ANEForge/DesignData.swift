@@ -18,13 +18,13 @@ enum DesignData {
         var modelId: String = ""      // REAL MLX model id — switching actually reloads this model
     }
 
+    // Only the model that ACTUALLY ships embedded (offline) — advertising 0.5B/3B was hollow:
+    // they aren't bundled and the offline daemon refuses to download, so picking them did nothing.
+    // One honest card keeps the "100% local model" reassurance without a fake, broken choice.
     static let modelCatalog: [ModelChoice] = [
-        .init(name: "Light", desc: "Qwen2.5 0.5B — fast, small setups.", ram: "8 GB", speed: "fast",
-              modelId: "mlx-community/Qwen2.5-0.5B-Instruct-4bit"),
-        .init(name: "Balanced", desc: "Qwen2.5 1.5B — smooth & multilingual. Recommended.", ram: "16 GB", speed: "56 tok/s",
+        .init(name: "Qwen2.5 1.5B", desc: "Smooth & multilingual · runs 100% on your Mac.",
+              ram: "16 GB", speed: "56 tok/s",
               modelId: "mlx-community/Qwen2.5-1.5B-Instruct-4bit"),
-        .init(name: "Powerful", desc: "Qwen2.5 3B — richer answers.", ram: "24 GB+", speed: "34 tok/s",
-              modelId: "mlx-community/Qwen2.5-3B-Instruct-4bit"),
     ]
 
     static let personaOptions = ["Calm", "Lively", "Professional", "Warm"]
@@ -53,13 +53,5 @@ enum DesignData {
     static let defaultPermissions: [String: Bool] = [
         "Fichiers": true, "Apps": true, "Notes": true, "Rappels": true,
         "Agenda": true, "Mémoire": true, "Mail": true, "Raccourcis": false,
-    ]
-
-    // Real, neutral starting points (no fictional café scenario) — work for anyone.
-    static let homeSuggestions = [
-        "What do you know about me?",
-        "Introduce yourself in one sentence",
-        "Help me organize my day",
-        "Learn something about me",
     ]
 }
