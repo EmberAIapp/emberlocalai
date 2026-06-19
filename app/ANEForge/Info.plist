@@ -2,41 +2,43 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
-    <key>CFBundleLocalizations</key>
-    <array>
-        <string>fr</string>
-        <string>en</string>
-        <string>es</string>
-        <string>de</string>
-        <string>pt</string>
-    </array>
-    <key>CFBundleName</key>
-    <string>Ember</string>
-    <key>CFBundleDisplayName</key>
-    <string>Ember</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.emberlocalai.ember</string>
-    <key>CFBundleVersion</key>
-    <string>0.1.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleExecutable</key>
-    <string>Ember</string>
-    <key>CFBundleIconFile</key>
-    <string>Ember</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>LSApplicationCategoryType</key>
-    <string>public.app-category.productivity</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Ember uses the microphone for hands-free Her Mode — speech recognition runs locally, on your Mac.</string>
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Ember transcribes your voice locally for Her Mode. Nothing is ever sent to a server.</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Ember</string>
+	<key>CFBundleExecutable</key>
+	<string>Ember</string>
+	<key>CFBundleIconFile</key>
+	<string>Ember</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.emberlocalai.ember</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>fr</string>
+		<string>en</string>
+		<string>es</string>
+		<string>de</string>
+		<string>pt</string>
+		<string>zh-Hans</string>
+		<string>ja</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>Ember</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>0.1.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ember uses the microphone for hands-free Her Mode — speech recognition runs locally, on your Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Ember transcribes your voice locally for Her Mode. Nothing is ever sent to a server.</string>
 </dict>
 </plist>
