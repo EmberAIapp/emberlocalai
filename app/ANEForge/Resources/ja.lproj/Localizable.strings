@@ -235,3 +235,17 @@
 "Équilibré" = "バランス";
 "Équilibrée" = "バランス";
 "“Ask me anything about you.\nI'll remember it, and nothing will leave this Mac.”" = "「自分について何でも聞いてください。\n私が覚えておきます。何もこの Mac から出ることはありません。」";
+
+/* dynamic UI (Her main screen) */
+"Listening…" = "聞いています…";
+"Thinking…" = "考え中…";
+"On it…" = "対応中…";
+"I'm listening — speak whenever you like." = "聞いています——いつでもどうぞ。";
+"Talk to me, or hand me a task." = "話しかけて、タスクを任せてください。";
+"I'm listening." = "聞いています。";
+"In conversation — tap to stop" = "会話中——タップで停止";
+"Talk or type to Ember…" = "Ember に話す・入力…";
+"Voice 100% local · duplex" = "音声 100% ローカル · デュプレックス";
+"Voice & conversation, 100% local" = "音声と会話、100% ローカル";
+"Trust" = "信頼";
+"Trust ON" = "信頼 オン";

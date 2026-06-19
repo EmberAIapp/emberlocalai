@@ -232,7 +232,7 @@ private struct ConversationColumn: View {
             .help(state.isBusy || state.agentBusy || state.talking ? "Interrupt" : "Speak (hands-free)")
             VoiceWave(level: level, paused: level <= 0.15 && !state.isBusy && !state.agentBusy)
                 .frame(width: active ? 240 : 320, height: active ? 44 : 70)
-            Text(caption)
+            Text(LocalizedStringKey(caption))
                 .font(.emberSerif(active ? 15 : 18, weight: .regular).italic())
                 .foregroundStyle(Color(hexv: 0xd8b9a6))
                 .multilineTextAlignment(.center).lineSpacing((active ? 15 : 18) * 0.4)
@@ -392,8 +392,8 @@ private struct ConversationColumn: View {
             }
             .buttonStyle(.plain).help(state.voiceSession ? "Stop the conversation" : "Voice conversation (hands-free)")
 
-            TextField(speech.listening ? (liveText.isEmpty ? "Listening…" : liveText)
-                       : (state.voiceSession ? "In conversation — tap to stop" : "Talk or type to Ember…"), text: $draft)
+            TextField(LocalizedStringKey(speech.listening ? (liveText.isEmpty ? "Listening…" : liveText)
+                       : (state.voiceSession ? "In conversation — tap to stop" : "Talk or type to Ember…")), text: $draft)
                 .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(.emberInk)
                 .onSubmit { if canSend { send() } }
 
@@ -421,7 +421,7 @@ private struct ConversationColumn: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.shield").font(.system(size: 12)).foregroundStyle(Color(hexv: 0x7fd095))
-            Text(state.voiceSession && speech.fullDuplex ? "Voice 100% local · duplex" : "Voice & conversation, 100% local")
+            Text(LocalizedStringKey(state.voiceSession && speech.fullDuplex ? "Voice 100% local · duplex" : "Voice & conversation, 100% local"))
                 .font(.system(size: 11)).foregroundStyle(Color(hexv: 0x9bbfa3))
             Spacer(minLength: 6)
             Button { state.wakeWanted.toggle() } label: {
@@ -446,7 +446,7 @@ private struct ConversationColumn: View {
 
     private func pill(on: Bool, icon: String, label: String) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: icon); Text(label)
+            Image(systemName: icon); Text(LocalizedStringKey(label))
         }
         .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(on ? Color(hexv: 0xffb877) : Color(hexv: 0x9a8d84))

@@ -235,3 +235,17 @@
 "Équilibré" = "均衡";
 "Équilibrée" = "均衡";
 "“Ask me anything about you.\nI'll remember it, and nothing will leave this Mac.”" = "「问我任何关于你的事。\n我会记住，且任何内容都不会离开这台 Mac。」";
+
+/* dynamic UI (Her main screen) */
+"Listening…" = "正在聆听…";
+"Thinking…" = "正在思考…";
+"On it…" = "处理中…";
+"I'm listening — speak whenever you like." = "我在听——随时开口。";
+"Talk to me, or hand me a task." = "和我说话，或交给我一个任务。";
+"I'm listening." = "我在听。";
+"In conversation — tap to stop" = "对话中——点按停止";
+"Talk or type to Ember…" = "对 Ember 说话或输入…";
+"Voice 100% local · duplex" = "语音 100% 本地 · 双工";
+"Voice & conversation, 100% local" = "语音与对话，100% 本地";
+"Trust" = "信任";
+"Trust ON" = "信任 开";

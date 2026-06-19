@@ -235,3 +235,17 @@
 "Équilibré" = "Ausgewogen";
 "Équilibrée" = "Ausgewogen";
 "“Ask me anything about you.\nI'll remember it, and nothing will leave this Mac.”" = "„Frag mich alles über dich.\nIch merke es mir, und nichts verlässt diesen Mac.“";
+
+/* dynamic UI (Her main screen) */
+"Listening…" = "Hört zu…";
+"Thinking…" = "Denkt nach…";
+"On it…" = "Bin dran…";
+"I'm listening — speak whenever you like." = "Ich höre zu — sprich, wann du willst.";
+"Talk to me, or hand me a task." = "Sprich mit mir oder gib mir eine Aufgabe.";
+"I'm listening." = "Ich höre zu.";
+"In conversation — tap to stop" = "Im Gespräch — zum Beenden tippen";
+"Talk or type to Ember…" = "Sprich oder schreibe an Ember…";
+"Voice 100% local · duplex" = "Stimme 100% lokal · Duplex";
+"Voice & conversation, 100% local" = "Stimme & Gespräch, 100% lokal";
+"Trust" = "Vertrauen";
+"Trust ON" = "Vertrauen EIN";
