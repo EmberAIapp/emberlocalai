@@ -37,6 +37,34 @@ from aneforge import tts
 _QWORDS = ("comment", "quel", "quelle", "qui", "où", "ou ", "quand", "what",
            "who", "where", "when", "how", "is ", "est-ce", "pourquoi")
 
+# Imperative "compose original text" requests — the tiny local model writes these badly, so we
+# hand them to the cloud work-agent (DeepSeek, with consent) for real quality. High-precision
+# EN/FR pre-check; the few-shot model classifier is the fallback for everything else / other langs.
+_CREATE_RE = re.compile(
+    r"\b(write|compose|draft|create|generate|"
+    r"[ée]cri(?:s|re|ve)|r[ée]dige[rz]?|composer?|g[ée]n[èe]re[rz]?|invente[rz]?|raconte[rz]?)\b"
+    r".{0,40}?\b(poems?|po[èe]mes?|haikus?|ha[ïi]kus?|story|stories|histoires?|contes?|songs?|"
+    r"chansons?|lyrics|paroles|messages?|notes?|e-?mails?|mails?|letters?|lettres?|essays?|essais?|"
+    r"speech|discours|jokes?|blagues?|texte?s?|paragraphe?s?|tweets?|captions?|slogans?|scripts?|"
+    r"sc[ée]narios?|po[èe]sies?)\b",
+    re.IGNORECASE)
+
+# Clear computer/file/app actions → also the agent (the local model can't touch files). An action
+# verb near a computer object (EN/FR). Precise enough to avoid gating normal chat.
+_ACTION_RE = re.compile(
+    r"\b(open|launch|run|list|show|display|find|search|locate|read|summari[sz]e|save|send|move|"
+    r"copy|rename|organi[sz]e|delete|download|"
+    r"ouvre|ouvrir|lance|lancer|d[ée]marre|ex[ée]cute|liste[rz]?|affiche[rz]?|montre[rz]?|"
+    r"cherche[rz]?|trouve[rz]?|recherche[rz]?|r[ée]sume[rz]?|enregistre|sauvegarde|envoie[rz]?|"
+    r"d[ée]place|copie|renomme|organise|range|supprime|t[ée]l[ée]charge)\b"
+    r".{0,40}?\b(files?|folders?|documents?|desktop|apps?|application|notes?|e-?mails?|messages?|"
+    r"finder|downloads?|screen|window|calendar|reminders?|"
+    r"fichiers?|dossiers?|bureau|t[ée]l[ée]chargements?|courriels?|messagerie|[ée]cran|fen[êe]tre|"
+    r"calendrier|rappels?)\b",
+    re.IGNORECASE)
+# "open/launch X" (an app) is always a task, whatever X is.
+_LAUNCH_RE = re.compile(r"\b(open|launch|ouvre|ouvrir|lance|lancer|d[ée]marre)\b\s+\S", re.IGNORECASE)
+
 
 def _settings_path(name: str):
     return MODELS_DIR / name / "settings.json"
@@ -391,7 +419,13 @@ class Engine:
             "simply Ember, the user's local AI. ALWAYS reply in the same language as the user's message.")
         tone = _TONE_INSTR.get(s.get("tone") or "Calme", "")
         base_persona = s.get("persona") or "You are warm, concise and genuinely helpful."
-        lines = [" ".join(x for x in (tone, base_persona) if x), identity]
+        # The small local model otherwise sometimes REFUSES harmless creative asks ("I'm just an
+        # AI, I can't write a poem…"). Make explicit that Ember writes/creates on request.
+        capable = ("You can write, draft, brainstorm and create on request — poems, messages, ideas, "
+                   "lists, short texts. When asked to write or make something, just do it, directly "
+                   "and warmly. Never refuse a harmless request, never say you \"can't\", never break "
+                   "character.")
+        lines = [" ".join(x for x in (tone, base_persona) if x), capable, identity]
         facts = store_for_model(name).relevant(prompt)
         if facts:
             lines.append(
@@ -552,21 +586,36 @@ class Engine:
 
     # --- Mode Her: route a spoken/typed message to CONVERSATION (local chat) or WORK (agent) ---
     def route(self, message: str) -> str:
-        """Conversation-first: only hand off to the DeepSeek work-agent on a clear request to
-        DO something on the computer; otherwise Ember just talks (local, private)."""
+        """Conversation-first: Ember talks locally; hand off to the DeepSeek work-agent for real
+        computer actions AND for composing original text (the tiny local model writes it poorly)."""
         m = (message or "").strip()
         if not m:
             return "chat"
-        sys = ("Route the user's message for a personal AI on their Mac. "
-               "TASK = they ask Ember to DO something concrete with the computer: read/list files "
-               "or folders, write or draft a note/message, search their files or memory, summarize "
-               "a document, prepare something. CHAT = everything else (greetings, small talk, "
-               "questions about themselves or the world, opinions, feelings). "
+        # Deterministic high-precision shortcuts (reliable across EN/FR — the 1.5B classifier is not):
+        #   compose original text, a clear file/app action, or "open <app>" → the agent.
+        if _CREATE_RE.search(m) or _ACTION_RE.search(m) or _LAUNCH_RE.search(m):
+            return "task"
+        sys = ("Classify the user's message to a personal on-device AI as TASK or CHAT.\n"
+               "TASK = the user wants Ember to DO, MAKE or WRITE something: handle files or apps, "
+               "search memory, summarize — or compose any original text (note, message, email, poem, "
+               "story, song, list, plan, code).\n"
+               "CHAT = pure conversation: greetings, small talk, questions about facts / the world / "
+               "themselves, opinions, feelings.\n"
+               "Examples:\n"
+               "write me a poem about the sea => TASK\n"
+               "écris-moi un message d'anniversaire pour Léa => TASK\n"
+               "rédige un email pour mon patron => TASK\n"
+               "list the files on my desktop => TASK\n"
+               "summarize this PDF => TASK\n"
+               "how are you today? => CHAT\n"
+               "what is the capital of Italy? => CHAT\n"
+               "I feel a bit tired => CHAT\n"
                "Answer with ONE word: TASK or CHAT.")
         try:
             with self._lock:
                 out = self.mlx.chat([{"role": "system", "content": sys},
-                                     {"role": "user", "content": m}], max_tokens=4)
+                                     {"role": "user", "content": m}],
+                                    max_tokens=4, temperature=0.0)   # greedy → routing is deterministic
             return "task" if "task" in (out or "").lower() else "chat"
         except Exception:
             return "chat"

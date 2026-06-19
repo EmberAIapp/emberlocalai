@@ -145,6 +145,7 @@ actor Engine {
                 do {
                     var req = URLRequest(url: url)
                     req.httpMethod = "POST"
+                    req.timeoutInterval = 300   // 1er token possiblement lent (chargement modèle à froid)
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "prompt": prompt])
                     let (bytes, _) = try await URLSession.shared.bytes(for: req)
@@ -173,6 +174,10 @@ actor Engine {
             let job = Task {
                 do {
                     var req = URLRequest(url: url); req.httpMethod = "POST"
+                    // L'agent se met en PAUSE sur les portes de consentement (cloud, fichiers, apps) et
+                    // attend l'utilisateur. Le défaut URLSession (60s) tuait la requête pendant l'attente
+                    // → « La requête a expiré ». On laisse largement le temps d'approuver + d'exécuter.
+                    req.timeoutInterval = 3600
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     req.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "task": task, "trust": trust, "blocked": blocked])
                     let (bytes, _) = try await URLSession.shared.bytes(for: req)
